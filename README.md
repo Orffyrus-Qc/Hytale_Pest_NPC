@@ -111,12 +111,70 @@ Linux containers cannot cleanly attach to a Windows game process. Hytale gamepla
 
 ---
 
+## What will usually work (clone + install)
+
+This repo is meant to be rebuildable from GitHub alone. If someone (or an agent like Claude Code / Codex / Grok) says something like **“clone this and get the brain running”** on a **Windows PC with Docker Desktop**, this is the realistic outcome:
+
+### Usually works
+
+| Step | Notes |
+|------|--------|
+| `git clone` this repo | Use the clone folder (e.g. `Hytale_Pest_NPC`), not a hardcoded machine path |
+| Create `.env` | `.\scripts\init-env.ps1` or copy `.env.example` → `.env` |
+| `.\scripts\up.ps1` / `docker compose up -d --build` | Builds and starts **hytale-pest-npc-brain** |
+| HTTP smoke checks | `/health`, `/status`, `/search-wiki?q=bed` on port **8780** |
+| Wiki Q&A via brain | Works without an LLM API key |
+| Sim mode without Hytale | `.\scripts\up-sim.ps1` (`SIM_MODE=1`) for synthetic demos |
+
+### Full in-game Pest (extra steps)
+
+| Step | Notes |
+|------|--------|
+| Hytale installed | Required for the real plugin bridge + file mount |
+| `HYTALE_HOST_PATH` in `.env` | Usually `%APPDATA%\Hytale` (forward slashes for Docker) |
+| Install the jar | `.\scripts\install-jar.ps1` → `%APPDATA%\Hytale\UserData\Mods` (prebuilt `PestAiNpc-0.1.0.jar` is in the repo) |
+| Restart the world | Plugin only loads after a world/server restart |
+| Optional LLM | Set `OPENAI_API_KEY` or Ollama in `.env` for polished chat; not required for policy or wiki answers |
+
+### Often fails or needs a human
+
+| Gap | Why |
+|-----|-----|
+| No Hytale install | Compose bind-mounts the Hytale folder; missing path → mount errors (use sim mode instead) |
+| Linux-only / no Docker Desktop | Scripts and the host+Docker layout assume **Windows + Docker Desktop** |
+| Expecting one-click “Pest is in my world” | Brain ≠ in-game NPC until jar is installed and the world is restarted |
+| Old learning data | `data/` is gitignored; each machine starts a **fresh** experience bank |
+| Secrets | `.env` is not in git (correct) — recreate per machine |
+
+### Minimum requirements
+
+- **Windows** (primary target) + **Docker Desktop**
+- **Git**
+- For real companion play: **Hytale** installed
+- Optional: **JDK 21+** only if rebuilding the plugin from source (prebuilt jar is included)
+
+### Suggested agent / human prompt
+
+```text
+Clone https://github.com/Orffyrus-Qc/Hytale_Pest_NPC
+On Windows with Docker Desktop: run scripts/init-env.ps1 then scripts/up.ps1.
+Smoke-test http://127.0.0.1:8780/health and /search-wiki?q=bed.
+If Hytale is installed, run scripts/install-jar.ps1 and restart the world for in-game Pest.
+If Hytale is missing, use scripts/up-sim.ps1 only.
+```
+
+---
+
 ## Quick start (Windows + Docker Desktop)
 
 ```powershell
-cd W:\Grok\home\bin\hytale-pest-npc
+git clone https://github.com/Orffyrus-Qc/Hytale_Pest_NPC.git
+cd Hytale_Pest_NPC
 .\scripts\init-env.ps1
 .\scripts\up.ps1
+# Optional in-game plugin:
+.\scripts\install-jar.ps1
+# Then restart your Hytale world
 ```
 
 Smoke-test **without** Hytale (synthetic player + threats):
