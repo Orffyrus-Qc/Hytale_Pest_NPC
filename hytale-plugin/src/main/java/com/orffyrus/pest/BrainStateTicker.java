@@ -176,7 +176,7 @@ public final class BrainStateTicker {
             goal = "gather_fibre";
         }
 
-        // When stay_home, pull Pest toward base bed if she wandered
+        // When stay_home, pull Pest toward base bed if he wandered
         if (stayHome && PestBaseState.isBuilt()) {
             double bx = PestBaseState.originX() + PestBaseBuilder.SIZE / 2.0;
             double bz = PestBaseState.originZ() + PestBaseBuilder.SIZE / 2.0;

@@ -24,7 +24,7 @@ behavior:
 
 base_building:
   concept: |
-    When the player starts building (20+ blocks in 300s), Pest builds her own home
+    When the player starts building (20+ blocks in 300s), Pest builds his own home
     about 100 blocks from the player's build cluster.
     Home: empty flat site, floor one block above ground, 9x9, pathable 2-wide doorway
     (NPC can walk in), bed inside for respawn. Invulnerable until base+bed exist.

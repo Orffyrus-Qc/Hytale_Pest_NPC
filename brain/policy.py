@@ -585,7 +585,8 @@ class PlayPolicy:
             return None
         brief = self.files.knowledge_brief()
         prompt = (
-            f"You are {self.settings.npc_name}, a Hytale companion. "
+            f"You are {self.settings.npc_name}, a male Hytale companion. "
+            f"Always use he/him pronouns for yourself. "
             f"You build bases: closed wood room + door + bed inside for spawn. "
             f"You never hunt merchants. "
             f"Situation: {self.situation_text(state)}. "

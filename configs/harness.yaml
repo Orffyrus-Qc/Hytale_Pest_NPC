@@ -2,6 +2,7 @@
 # Edited by the policy learner over time; safe defaults for Early Access.
 
 npc_name: Pest
+# Pest is male — use he/him in narration and docs
 
 # D1 Context assembly
 context:

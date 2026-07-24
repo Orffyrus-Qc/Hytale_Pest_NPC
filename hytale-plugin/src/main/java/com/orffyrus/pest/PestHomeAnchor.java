@@ -7,7 +7,7 @@ import com.hypixel.hytale.server.core.universe.Universe;
 import org.joml.Vector3d;
 
 /**
- * Keeps Pest near her base while the player is within 200 blocks of it.
+ * Keeps Pest near his base while the player is within 200 blocks of it.
  * When the player goes farther, follow mode takes over (policy).
  * If Pest dies / despawns, prefer respawn at bed when owner is near enough.
  */

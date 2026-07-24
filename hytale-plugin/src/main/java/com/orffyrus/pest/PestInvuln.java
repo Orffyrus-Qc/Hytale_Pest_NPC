@@ -11,8 +11,8 @@ import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import java.util.UUID;
 
 /**
- * Invulnerable until Pest finishes a base + bed; then remove the component so she can die
- * and respawn at her bed.
+ * Invulnerable until Pest finishes a base + bed; then remove the component so he can die
+ * and respawn at his bed.
  */
 public final class PestInvuln {
 

@@ -9,10 +9,10 @@ Runs in **its own Docker stack** (separate from Mori/OpenHands/NpcAiStack). The 
 
 1. **Fight** near hostiles (unless staying home)  
 2. **Follow** if you are **≥200 blocks from Pest’s base**  
-3. **Stay home** while you are **&lt;200** from her base (guards bed)  
+3. **Stay home** while you are **&lt;200** from his base (guards bed)  
 4. **Hunt** if you stand still **30–300 s** (random threshold)  
-5. **Build home** when you place **&gt;20 blocks in 300 s** → she builds **~100 blocks** from your build cluster (empty spot, floor **+1 Y**, **pathable** doorway, **bed** for respawn)  
-6. **Invulnerable** until her base+bed exist  
+5. **Build home** when you place **&gt;20 blocks in 300 s** → he builds **~100 blocks** from your build cluster (empty spot, floor **+1 Y**, **pathable** doorway, **bed** for respawn)  
+6. **Invulnerable** until his base+bed exist  
 
 | Command / chat | Effect |
 |----------------|--------|

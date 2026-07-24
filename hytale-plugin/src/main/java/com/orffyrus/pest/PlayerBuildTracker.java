@@ -8,7 +8,7 @@ import java.util.Deque;
 
 /**
  * Tracks player block places. When the owner places {@link #PLACE_THRESHOLD}+ blocks
- * inside a {@link #WINDOW_MS} rolling window, Pest becomes eligible to build her home
+ * inside a {@link #WINDOW_MS} rolling window, Pest becomes eligible to build his home
  * (~100 blocks from the player build cluster).
  *
  * <p>Eligibility is <b>latched</b> until a base is built (or session reset) so a slow
