@@ -1,7 +1,7 @@
 package com.orffyrus.pest;
 
 /**
- * WebSocket client for the independent Docker brain (hytale-ai-npc).
+ * WebSocket client for the independent Docker brain (hytale-pest-npc).
  * Protocol: hytale_ai_npc_v1 — see plugin-bridge/PROTOCOL.md
  * Default: ws://127.0.0.1:8766
  *

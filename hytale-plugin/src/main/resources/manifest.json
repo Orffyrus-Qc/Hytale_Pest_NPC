@@ -2,7 +2,7 @@
     "Group": "com.orffyrus",
     "Name": "PestAiNpc",
     "Version": "0.1.0",
-    "Description": "Pest companion NPC \u2014 bridges to independent Docker brain (hytale-ai-npc) on ws://127.0.0.1:8766. Learns from player demos + game state; follow/fight/explore.",
+    "Description": "Pest companion NPC \u2014 bridges to Docker brain (hytale-pest-npc) on ws://127.0.0.1:8766. Commands: /pest. Learns from demos + game state.",
     "Authors": [
         {
             "Name": "orffyrus"

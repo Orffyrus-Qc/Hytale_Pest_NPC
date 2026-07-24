@@ -25,7 +25,7 @@ ws://127.0.0.1:8766
 ## Build & install
 
 ```powershell
-cd W:\Grok\home\bin\hytale-ai-npc
+cd W:\Grok\home\bin\hytale-pest-npc
 .\scripts\build-plugin.ps1
 ```
 
@@ -43,17 +43,17 @@ Requires **JDK 25** and network once for `com.hypixel.hytale:Server` from maven.
 
 1. Start Docker brain: `..\scripts\up.ps1` (SIM_MODE=0 for real play)
 2. Launch Hytale, load a world (restart after installing jar)
-3. `/pest status` — should show `brainConnected=true` when Docker is up
-4. `/pest spawn` if needed
-5. Chat: `Pest, what's nearby?`
+3. **`/pest status`** — brain link (command is **`/pest`**, not `/auri`)
+4. **`/pest spawn force`** if needed
+5. Chat: `Pest, follow me` / `Pest, what's nearby?`
 6. Mine/place blocks — demos stream to the brain
 
 ## Conflict note
 
-You can keep **NpcAiStack** (Mori/Pest) installed. Use different names/commands:
+You can keep **NpcAiStack** (Mori) installed. Use different names/commands:
 
-- Mori/Pest → orchestrator **8765**
-- Pest → brain **8766**
+- Mori → orchestrator **8765**
+- **Pest** → brain **8766**, commands **`/pest …`**
 
 If both auto-spawn companions, disable one side’s creative/adventure auto-spawn as needed.
 

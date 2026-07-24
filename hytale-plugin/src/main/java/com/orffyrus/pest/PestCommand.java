@@ -18,9 +18,11 @@ import java.util.Locale;
  * In-game control for Pest.
  *
  * <pre>
- * /pest status | spawn [force] | regear | base | bed
+ * /pest status | spawn [force] | regear | base | bed | places
  * /pest hunt | loot | mode hybrid | creative on|off
  * </pre>
+ *
+ * Command name is <b>pest</b> only (not auri).
  */
 public class PestCommand extends AbstractPlayerCommand {
 
@@ -29,6 +31,7 @@ public class PestCommand extends AbstractPlayerCommand {
     public PestCommand() {
         super("pest", "Pest companion + Docker brain on port 8766");
         setAllowsExtraArguments(true);
+        // No "auri" alias — command is /pest only
     }
 
     @Override
@@ -171,7 +174,17 @@ public class PestCommand extends AbstractPlayerCommand {
 
     private static List<String> tokenize(CommandContext context) {
         String raw = safe(context.getInputString());
-        if (raw.toLowerCase(Locale.ROOT).startsWith("pest")) {
+        // Strip leading slash: "/pest status" → "pest status"
+        if (raw.startsWith("/")) {
+            raw = raw.substring(1).trim();
+        }
+        String low = raw.toLowerCase(Locale.ROOT);
+        // Strip command name so subcommands parse: "pest status" → "status"
+        if (low.startsWith("pest")) {
+            raw = raw.substring(4).trim();
+        } else if (low.startsWith("auri")) {
+            // Old name no longer valid — tell player via empty action → help
+            // Still strip so leftover args don't confuse; help covers rename
             raw = raw.substring(4).trim();
         }
         raw = raw.replace("--action", " ").replace("--option", " ").replace("--args", " ");
@@ -191,12 +204,14 @@ public class PestCommand extends AbstractPlayerCommand {
     }
 
     private static void sendHelp(CommandContext context) {
-        msg(context, "Pest (Docker brain :8766):");
-        msg(context, "  /pest status | spawn force | regear | places");
-        msg(context, "  /pest base force | bed | hunt | loot");
-        msg(context, "  /pest mode hybrid | creative on|off");
-        msg(context, "Chat: Pest, build a base | Pest, hunt | Pest, follow");
-        msg(context, "Auto-home: 20+ places/300s (NO 15min). Force: /pest base force");
+        msg(context, "Pest commands (NOT /auri — renamed to /pest):");
+        msg(context, "  /pest status | /pest spawn | /pest spawn force");
+        msg(context, "  /pest regear | /pest places | /pest bed");
+        msg(context, "  /pest base force | /pest hunt | /pest loot");
+        msg(context, "  /pest mode observe|imitate|hybrid|autonomous");
+        msg(context, "  /pest creative on|off | /pest help");
+        msg(context, "Chat: Pest, follow me | Pest, build a base | Pest, hunt");
+        msg(context, "Auto-home: place 20+ blocks in 300s. Manual: /pest base force");
     }
 
     private static void msg(CommandContext context, String text) {

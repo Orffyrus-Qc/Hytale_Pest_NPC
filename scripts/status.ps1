@@ -4,6 +4,6 @@ try {
     $r | ConvertTo-Json -Depth 8
 } catch {
     Write-Host "Brain not reachable on :8780 — is the container up?"
-    docker ps --filter "name=hytale-ai-npc-brain"
+    docker ps --filter "name=hytale-pest-npc-brain"
     exit 1
 }

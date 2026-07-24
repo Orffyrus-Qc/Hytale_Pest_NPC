@@ -1,9 +1,11 @@
-# Hytale AI NPC (independent Docker brain)
+# Pest — Hytale AI NPC (independent Docker brain)
 
 Standalone learning agent for **Hytale Early Access**.  
 Runs in **its own Docker stack** (separate from Mori/OpenHands/NpcAiStack). The game stays on Windows; the brain learns and decides inside the container.
 
-**NPC default name:** `pest` (change with `NPC_NAME` / `configs/harness.yaml`)
+**NPC name:** `Pest` (male — he/him). Change with `NPC_NAME` / `configs/harness.yaml` if needed.
+
+> **Commands are `/pest …` (not `/auri`).** The old Auri name was fully renamed.
 
 ### Companion priorities (live policy)
 
@@ -14,14 +16,22 @@ Runs in **its own Docker stack** (separate from Mori/OpenHands/NpcAiStack). The 
 5. **Build home** when you place **&gt;20 blocks in 300 s** → he builds **~100 blocks** from your build cluster (empty spot, floor **+1 Y**, **pathable** doorway, **bed** for respawn)  
 6. **Invulnerable** until his base+bed exist  
 
-| Command / chat | Effect |
-|----------------|--------|
-| `/pest spawn force` | Respawn + kit; resets build/idle trackers |
-| `/pest regear` | Re-apply kit |
+### Slash commands (`/pest`)
+
+| Command | Effect |
+|---------|--------|
+| `/pest` or `/pest help` | This help list |
+| `/pest status` | Brain link, inventory, base, timers |
+| `/pest spawn` | Spawn Pest near you |
+| `/pest spawn force` | Despawn clones + respawn + full kit; resets trackers |
+| `/pest regear` | Re-apply tools/planks/door/bed kit |
+| `/pest places` | How many blocks you placed (home trigger counter) |
 | `/pest base force` | Build home **now** (no 20-block wait) |
-| `/pest hunt` / `/pest loot` | Hunt or loot windows |
-| Chat: `Pest, build a base` | Instant build |
-| `/pest status` | places/20, invuln, base, timers |
+| `/pest bed` | Set spawn at Pest Camp if base exists |
+| `/pest hunt` | Hunt mode ~30s (safe prey) |
+| `/pest loot` | Loot / pickup window |
+| `/pest mode hybrid` | `observe` \| `imitate` \| `hybrid` \| `autonomous` |
+| `/pest creative on\|off` | Auto-spawn in Creative |
 
 ### Chat keywords (instant intents)
 
@@ -83,7 +93,7 @@ Inspired by harness ideas (context / tools / generation / orchestration / memory
   └────────────────────────────────────────────┼───────────────────────────┘
                                                ▼
                               ┌────────────────────────────────┐
-                              │  Docker: hytale-ai-npc-brain   │
+                              │  Docker: hytale-pest-npc-brain │
                               │  • file_inspector              │
                               │  • demo_store (imitation)      │
                               │  • experience bank             │
@@ -100,7 +110,7 @@ Linux containers cannot cleanly attach to a Windows game process. Hytale gamepla
 ## Quick start (Windows + Docker Desktop)
 
 ```powershell
-cd W:\Grok\home\bin\hytale-ai-npc
+cd W:\Grok\home\bin\hytale-pest-npc
 .\scripts\init-env.ps1
 .\scripts\up.ps1
 ```
@@ -109,7 +119,7 @@ Smoke-test **without** Hytale (synthetic player + threats):
 
 ```powershell
 .\scripts\up-sim.ps1
-docker logs -f hytale-ai-npc-brain
+docker logs -f hytale-pest-npc-brain
 .\scripts\status.ps1
 ```
 
@@ -165,9 +175,10 @@ Java plugin lives in [`hytale-plugin/`](hytale-plugin/) (`com.orffyrus:PestAiNpc
 | In-game | Action |
 |---------|--------|
 | `/pest status` | companion + brain connection |
-| `/pest spawn` / `spawn force` | spawn Pest |
+| `/pest spawn` / `/pest spawn force` | spawn Pest |
 | `/pest mode hybrid` | observe / imitate / hybrid / autonomous |
-| Chat `Pest, …` | dialogue via Docker brain |
+| `/pest base force` | build home now |
+| Chat `Pest, …` | dialogue + instant keywords (see table above) |
 | Mine / place | player demos for learning |
 
 Full WebSocket schema: [`plugin-bridge/PROTOCOL.md`](plugin-bridge/PROTOCOL.md)
@@ -202,7 +213,7 @@ Optional LLM (dialogue only; play works offline without keys):
 ## Project layout
 
 ```
-hytale-ai-npc/
+hytale-pest-npc/
   docker-compose.yml
   Dockerfile
   requirements.txt

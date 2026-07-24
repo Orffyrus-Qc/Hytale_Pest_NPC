@@ -18,5 +18,5 @@ Set-Content $EnvPath $lines -Encoding UTF8
 
 New-Item -ItemType Directory -Force -Path (Join-Path $Root "data") | Out-Null
 docker compose up -d --build
-Write-Host "SIM_MODE brain starting. Watch: docker logs -f hytale-ai-npc-brain"
+Write-Host "SIM_MODE brain starting. Watch: docker logs -f hytale-pest-npc-brain"
 Write-Host "Status: http://127.0.0.1:8780/status"
