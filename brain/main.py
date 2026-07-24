@@ -38,9 +38,18 @@ async def run() -> None:
     server = uvicorn.Server(config)
     bridge = WsBridge(brain, settings.brain_host, settings.brain_port)
 
+    async def _warm_llm() -> None:
+        # Load Qwen into RAM so first in-game question is not a multi-minute cold start
+        await asyncio.sleep(2)
+        try:
+            await brain.policy.warm_ollama()
+        except Exception as e:
+            log.warning("LLM warm task failed: %s", e)
+
     tasks = [
         asyncio.create_task(server.serve(), name="http"),
         asyncio.create_task(bridge.run(), name="ws"),
+        asyncio.create_task(_warm_llm(), name="warm-llm"),
     ]
 
     if settings.sim_mode:
@@ -50,11 +59,13 @@ async def run() -> None:
         log.info("SIM_MODE=1 — synthetic learner running")
 
     log.info(
-        "Hytale AI NPC brain up | NPC=%s | HTTP=:%s | WS=:%s | mount=%s",
+        "Hytale AI NPC brain up | NPC=%s | HTTP=:%s | WS=:%s | mount=%s | ollama=%s model=%s",
         settings.npc_name,
         settings.api_port,
         settings.brain_port,
         settings.hytale_mount,
+        settings.ollama_base_url or "-",
+        settings.ollama_model or "-",
     )
     await asyncio.gather(*tasks)
 

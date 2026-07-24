@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -14,10 +15,11 @@ import orjson
 
 log = logging.getLogger("hytale_ai.wiki")
 
-DEFAULT_API = "https://hytale.wiki.gg/api.php"
+# Direct wiki host (avoids wiki.gg → 301 → second hop latency)
+DEFAULT_API = "https://hytalewiki.org/api.php"
 USER_AGENT = "PestAiNpc/0.1 (Hytale companion; read-only wiki research)"
 CACHE_TTL_S = 3600.0
-CACHE_VERSION = "v8"  # bump when ranking / query variants change
+CACHE_VERSION = "v10"  # bump when ranking / query variants change
 
 # Minimum score to treat a hit as related to the player's question
 MIN_RELEVANCE = 8.0
@@ -70,9 +72,15 @@ _OBTAIN_SECTION_RE = re.compile(
 _USAGE_SECTION_RE = re.compile(
     r"(?is)(?:^|\n)\s*(?:=+\s*)?(usage|uses|crafting|smelting|purpose)\s*(?:=+\s*)?\n+(.*?)(?=\n\s*=+\s*\w|\n\s*(?:Obtaining|Salvaging|Data|History|Navigation)\b|\Z)"
 )
+# Concrete location/generation signals only — NOT bare "found in the world"
 _LOCATION_LINE_RE = re.compile(
-    r"(?i)\b(found|generates?|appears?|located|spawns?|mined|caves?|zone|wilds|"
-    r"fens|basalt|underground|chest|outpost|vein|deeper|common|rare)\b"
+    r"(?i)\b("
+    r"generates?\s+naturally|appears?\s+deeper|located\s+in|spawns?\s+in|"
+    r"mined\s+in|caves?\s+in|underground|goblin outpost|mineshaft|"
+    r"zone\s*\d|emerald wilds|howling sands|the fens|basalt|volcanic stone|"
+    r"veins?\s+of|deeper within|chest[s]?\s+in|surrounded by|"
+    r"most common type of ore|less commonly than"
+    r")\b"
 )
 
 # Words stripped when turning a player question into a wiki search query
@@ -228,21 +236,22 @@ class WikiSearch:
             return cached
 
         try:
-            # Gather candidates from ALL variants (don't stop at first fill)
+            # Fast path: 1–2 variants only, opensearch first (skip fulltext unless empty)
             titles: list[str] = []
-            per_variant = max(limit, 5)
-            for v in variants:
+            for v in variants[:2]:
                 if not v:
                     continue
-                for t in await self._opensearch(v, limit=per_variant):
+                for t in await self._opensearch(v, limit=max(limit, 4)):
                     if t not in titles:
                         titles.append(t)
-                for t in await self._fulltext_search(v, limit=per_variant):
-                    if t not in titles:
-                        titles.append(t)
-                if len(titles) >= limit * 3:
+                if len(titles) >= limit:
                     break
-            titles = titles[: max(limit * 3, 12)]
+            if len(titles) < 2:
+                for v in variants[:1]:
+                    for t in await self._fulltext_search(v, limit=max(limit, 4)):
+                        if t not in titles:
+                            titles.append(t)
+            titles = titles[: max(limit, 4)]
 
             hits: list[dict[str, Any]] = []
             if titles:
@@ -268,8 +277,10 @@ class WikiSearch:
             self.last_hit_count = len(hits)
             self.last_error = ""
             self.last_ok_ts = time.time()
-            # Don't persist internal score fields in a way that breaks ranking later
-            store = [{k: v for k, v in h.items() if k != "_score"} | {"_score": h.get("_score", 0)} for h in hits]
+            store = [
+                {k: v for k, v in h.items() if k != "_score"} | {"_score": h.get("_score", 0)}
+                for h in hits
+            ]
             self._set_cache(cache_key, store)
             return hits
         except Exception as e:
@@ -295,35 +306,56 @@ class WikiSearch:
             parts.append(f"- {h.get('title')}: {snip} ({h.get('url')})")
         return "Hytale wiki:\n" + "\n".join(parts)
 
-    async def answer_player_question(self, player_text: str, limit: int = 3) -> str | None:
+    async def gather_sources(self, player_text: str, limit: int = 5) -> dict[str, Any]:
         """
-        Answer from Hytale wiki: parse the whole question, pull definition +
-        where/how to obtain (e.g. iron → iron ore locations), stay on-topic.
+        Fetch relevant Hytale wiki pages as raw source material.
+        Does NOT hand-craft answers — an LLM should synthesize from `sources`.
         """
+        empty: dict[str, Any] = {
+            "query": "",
+            "search_q": "",
+            "sources": [],
+            "context": "",
+            "error": None,
+        }
         if not self._enabled:
-            return None
+            empty["error"] = "wiki_search disabled"
+            return empty
         query = self.extract_query_from_chat(player_text)
         if not query:
-            return None
-
+            empty["error"] = "empty query"
+            return empty
         if self._is_filler(query):
-            return None
+            empty["error"] = "filler"
+            empty["query"] = query
+            return empty
 
         search_q = self._resolve_followup_query(query)
+        empty["query"] = query
+        empty["search_q"] = search_q or query
         if not search_q:
-            if self._is_more_followup(query) and not self.last_topic_title:
-                return "What topic should I look up on the Hytale wiki?"
-            return None
+            empty["error"] = "need_topic"
+            return empty
 
         intent = self._question_intent(search_q)
-        related_queries = self._related_topic_queries(search_q, intent)
+        # Keep related lookups tiny for latency (1 extra query max)
+        related_queries = self._related_topic_queries(search_q, intent)[:1]
 
-        # Primary + related pages (ore/location for metals, etc.)
+        t0 = time.time()
         all_hits: list[dict[str, Any]] = []
         seen_titles: set[str] = set()
-        for rq in [search_q, *related_queries]:
-            hits = await self.search(rq, limit=max(limit, 6))
+        # Primary search only first; related only if thin results
+        for rq in [search_q]:
+            hits = await self.search(rq, limit=min(max(limit, 3), 4))
             for h in self._relevant_hits(hits, rq):
+                t = (h.get("title") or "").lower()
+                if t and t not in seen_titles:
+                    seen_titles.add(t)
+                    all_hits.append(h)
+
+        if len(all_hits) < 2 and related_queries:
+            hits = await self.search(related_queries[0], limit=3)
+            for h in self._relevant_hits(hits, related_queries[0]):
                 t = (h.get("title") or "").lower()
                 if t and t not in seen_titles:
                     seen_titles.add(t)
@@ -332,29 +364,96 @@ class WikiSearch:
         if not all_hits:
             bag = self._content_bag(search_q)
             if bag and bag.lower() != search_q.lower():
-                hits = await self.search(bag, limit=max(limit, 6))
+                hits = await self.search(bag, limit=3)
                 all_hits = self._relevant_hits(hits, bag)
 
         if not all_hits:
+            empty["error"] = self.last_error or "no_hits"
+            return empty
+
+        primary = self._pick_primary_hit(all_hits, search_q, intent)
+        ranked = [primary] + [h for h in all_hits if h is not primary]
+        # Cap sources hard — long context kills local CPU LLM speed
+        max_src = min(max(limit, 2), 2)
+        sources: list[dict[str, Any]] = []
+        for h in ranked[:max_src]:
+            extract = (h.get("extract") or h.get("snippet") or "").strip()
+            if not extract:
+                continue
+            sources.append(
+                {
+                    "title": h.get("title") or "?",
+                    "url": h.get("url") or "",
+                    "extract": extract[:900],
+                    "score": float(h.get("_score") or 0),
+                }
+            )
+
+        if not sources:
+            empty["error"] = "empty_extracts"
+            return empty
+
+        lines = [f"Player question: {search_q}", "Wiki sources (use only these facts):"]
+        for i, s in enumerate(sources, 1):
+            lines.append(f"\n[{i}] {s['title']}\nURL: {s['url']}\n{s['extract']}")
+        context = "\n".join(lines)
+        log.info(
+            "wiki gather_sources q=%r sources=%d in %.2fs",
+            search_q,
+            len(sources),
+            time.time() - t0,
+        )
+
+        title = str(sources[0].get("title") or "")
+        url = str(sources[0].get("url") or "")
+        self.last_topic_query = search_q
+        self.last_topic_title = title
+        self.last_topic_url = url
+
+        return {
+            "query": query,
+            "search_q": search_q,
+            "sources": sources,
+            "context": context,
+            "error": None,
+            "intent": intent,
+        }
+
+    async def answer_player_question(self, player_text: str, limit: int = 3) -> str | None:
+        """
+        Thin no-LLM fallback: dump top wiki extract only.
+        Preferred path is LLM synthesis via gather_sources + policy.
+        """
+        pack = await self.gather_sources(player_text, limit=limit)
+        if pack.get("error") == "filler":
+            return None
+        if pack.get("error") == "need_topic":
+            return "What topic should I look up on the Hytale wiki?"
+        if pack.get("error") and not pack.get("sources"):
+            if pack["error"] == "wiki_search disabled":
+                return None
             if self.last_error:
                 return (
                     f"I couldn't reach the Hytale wiki just now ({self.last_error[:80]}). "
                     "Ask again in a moment."
                 )
             return (
-                f"I checked the Hytale wiki for “{search_q}” but nothing matched closely enough. "
-                "Try a clearer item, mob, zone, or craft name."
+                f"I checked the Hytale wiki for “{pack.get('search_q') or pack.get('query')}” "
+                "but nothing matched closely enough. Try a clearer item, mob, zone, or craft name."
             )
 
-        # Prefer ore/resource pages when player asked about a metal and we need "where found"
-        primary = self._pick_primary_hit(all_hits, search_q, intent)
-        reply = self._compose_answer(search_q, intent, primary, all_hits)
-
-        title = primary.get("title") or "that"
-        url = primary.get("url") or ""
-        self.last_topic_query = search_q
-        self.last_topic_title = str(title)
-        self.last_topic_url = str(url)
+        sources = pack.get("sources") or []
+        if not sources:
+            return None
+        s0 = sources[0]
+        extract = re.sub(r"\s+", " ", (s0.get("extract") or "").strip())
+        # Lead only (before first == section) for short offline fallback
+        lead = re.split(r"\s*==", extract, maxsplit=1)[0].strip()
+        if len(lead) > 400:
+            lead = lead[:397].rsplit(" ", 1)[0] + "…"
+        reply = f"{s0.get('title')}: {lead}"
+        if s0.get("url"):
+            reply += f" (wiki: {s0['url']})"
         self.last_answer = reply
         return reply
 
@@ -455,7 +554,8 @@ class WikiSearch:
                 return t
         return tokens[0] if tokens else ""
 
-    def _title_matches_focus(self, title: str, focus: str) -> bool:
+    @staticmethod
+    def _title_matches_focus(title: str, focus: str) -> bool:
         if not focus:
             return True
         t = (title or "").lower()
@@ -479,6 +579,8 @@ class WikiSearch:
         summary = self._extract_summary(extract)
         obtaining = self._extract_obtaining(extract)
         usage = self._extract_usage(extract)
+        # Drop fake "where" that just repeats the lead paragraph
+        obtaining = self._dedupe_against_summary(obtaining, summary)
 
         # If primary lacks Obtaining, only borrow from same-resource pages (iron→iron ore, not copper)
         if not obtaining and (intent.get("where") or intent.get("resource") or intent.get("what")):
@@ -487,7 +589,6 @@ class WikiSearch:
                 for h in all_hits
                 if self._title_matches_focus(h.get("title") or "", focus)
             ]
-            # Prefer "* Ore" pages for locations
             same.sort(
                 key=lambda h: (
                     0 if "ore" in (h.get("title") or "").lower() else 1,
@@ -495,25 +596,47 @@ class WikiSearch:
                 )
             )
             for h in same:
-                obt = self._extract_obtaining(h.get("extract") or "")
+                obt = self._dedupe_against_summary(
+                    self._extract_obtaining(h.get("extract") or ""),
+                    summary,
+                )
                 if not obt:
                     continue
                 obtaining = obt
                 if not summary or len(summary) < 40:
                     summary = self._extract_summary(h.get("extract") or "") or summary
-                # Prefer showing the ore title when locations came from the ore page
                 ht = h.get("title") or title
                 if "ore" in ht.lower() and "ore" not in title.lower():
                     title = ht
                     url = h.get("url") or url
                 break
 
-        if not usage and intent.get("how"):
+        # Usage: prefer primary page only. Related gear pages (Iron Shield) must
+        # not become "Use:" for an ore question.
+        if not usage:
             for h in all_hits:
+                ht = (h.get("title") or "").lower()
                 if not self._title_matches_focus(h.get("title") or "", focus):
                     continue
+                # Same material family only (ore/ingot/category), not weapons/armor
+                if focus and focus in ht:
+                    if any(
+                        k in ht
+                        for k in (
+                            "sword", "shield", "bow", "dagger", "mace", "spear",
+                            "helm", "cuirass", "gauntlet", "greave", "staff",
+                            "crossbow", "hoe", "shovel", "pickaxe", "hatchet",
+                        )
+                    ):
+                        continue
                 u = self._extract_usage(h.get("extract") or "")
-                if u:
+                if not u:
+                    continue
+                ul = u.lower()
+                if any(k in ul for k in ("smelt", "craft", "ingredient", "toss", "used as", "furnace")):
+                    usage = u
+                    break
+                if ht in {focus, f"{focus} ore", f"{focus} ingot", title.lower()}:
                     usage = u
                     break
 
@@ -527,24 +650,19 @@ class WikiSearch:
             parts.append(f"Where to find / get it: {obtaining}")
         elif intent.get("where") and not obtaining:
             parts.append(
-                "The wiki page I found does not list a clear location yet — "
-                "try a more specific name (e.g. iron ore)."
+                "The wiki does not list a specific place to find this — "
+                "try a more specific name (e.g. stone rubble, iron ore)."
             )
 
-        if usage and (intent.get("how") or intent.get("resource")):
+        if usage and (
+            intent.get("how")
+            or intent.get("resource")
+            or (intent.get("where") and not obtaining)
+            or intent.get("what")
+        ):
             parts.append(f"Use: {usage}")
 
-        related_titles = []
-        for h in all_hits:
-            ht = h.get("title") or ""
-            if not ht or ht.lower() == title.lower():
-                continue
-            if not self._title_matches_focus(ht, focus):
-                continue
-            if ht not in related_titles:
-                related_titles.append(ht)
-            if len(related_titles) >= 2:
-                break
+        related_titles = self._related_titles(title, focus, all_hits, intent)
         if related_titles:
             parts.append("Also see: " + ", ".join(related_titles) + ".")
 
@@ -575,25 +693,105 @@ class WikiSearch:
             text = cut.rsplit(" ", 1)[0] + "…"
         return text
 
+    @staticmethod
+    def _normalize_overlap(text: str) -> set[str]:
+        words = re.findall(r"[a-z0-9]+", (text or "").lower())
+        stop = {
+            "a", "an", "the", "is", "are", "of", "in", "to", "and", "or", "for",
+            "can", "be", "with", "as", "on", "at", "by", "from", "this", "that",
+            "type", "types", "many", "one", "also", "used", "hytale", "world",
+        }
+        return {w for w in words if len(w) > 2 and w not in stop}
+
+    @classmethod
+    def _dedupe_against_summary(cls, obtaining: str, summary: str) -> str:
+        """Drop obtaining text that is just the definition restated."""
+        if not obtaining:
+            return ""
+        if not summary:
+            return obtaining
+        o = cls._normalize_overlap(obtaining)
+        s = cls._normalize_overlap(summary)
+        if not o:
+            return ""
+        overlap = len(o & s) / max(len(o), 1)
+        # High overlap with lead = not a real location section
+        if overlap >= 0.65:
+            return ""
+        # Too short and shares most tokens with summary
+        if len(obtaining) < 80 and overlap >= 0.45:
+            return ""
+        return obtaining
+
+    @classmethod
+    def _related_titles(
+        cls,
+        title: str,
+        focus: str,
+        all_hits: list[dict[str, Any]],
+        intent: dict[str, bool],
+    ) -> list[str]:
+        """Prefer same-resource materials (ore/ingot/types), not random gear."""
+        title_l = (title or "").lower()
+        scored: list[tuple[float, str]] = []
+        for h in all_hits:
+            ht = h.get("title") or ""
+            hl = ht.lower()
+            if not ht or hl == title_l:
+                continue
+            if not cls._title_matches_focus(ht, focus):
+                continue
+            score = float(h.get("_score") or 0)
+            # Boost material pages; demote weapons/armor for resource questions
+            if any(k in hl for k in (" ore", "ore", "ingot", "rubble", "bar")):
+                score += 20.0
+            if intent.get("resource") or intent.get("where"):
+                if any(
+                    k in hl
+                    for k in (
+                        "sword", "shield", "bow", "dagger", "mace", "axe", "spear",
+                        "helm", "cuirass", "gauntlet", "greave", "staff", "crossbow",
+                    )
+                ):
+                    score -= 25.0
+            if cls._extract_obtaining(h.get("extract") or ""):
+                score += 8.0
+            scored.append((score, ht))
+        scored.sort(key=lambda x: -x[0])
+        out: list[str] = []
+        for sc, ht in scored:
+            if sc < 5:
+                continue
+            if ht not in out:
+                out.append(ht)
+            if len(out) >= 2:
+                break
+        return out
+
     @classmethod
     def _extract_obtaining(cls, extract: str) -> str:
-        """Pull Obtaining/location section or location-like sentences."""
+        """Pull Obtaining/location section or concrete location sentences."""
         if not extract:
             return ""
         # Prefer dedicated section
         m = _OBTAIN_SECTION_RE.search("\n" + extract)
         if m:
-            body = m.group(2)
-            return cls._clean_section_body(body, max_len=480)
+            body = cls._clean_section_body(m.group(2), max_len=480)
+            if body:
+                return body
 
-        # Fallback: sentences that sound like locations
-        sentences = re.split(r"(?<=[.!?])\s+|\n+", extract)
+        # Fallback: only sentences with concrete generation/location cues
+        # Skip the lead paragraph (before first ==) to avoid definition echo
+        body = extract
+        if "\n==" in extract:
+            body = extract.split("\n==", 1)[1]
+        sentences = re.split(r"(?<=[.!?])\s+|\n+", body)
         loc_sents = []
         for s in sentences:
             s1 = s.strip()
-            if len(s1) < 20:
+            if len(s1) < 25 or s1.startswith("="):
                 continue
-            if _LOCATION_LINE_RE.search(s1) and not s1.startswith("=="):
+            if _LOCATION_LINE_RE.search(s1):
                 loc_sents.append(re.sub(r"\s+", " ", s1))
             if len(loc_sents) >= 4:
                 break
@@ -973,27 +1171,27 @@ class WikiSearch:
         return out[:limit]
 
     async def _extracts(self, titles: list[str]) -> dict[str, dict[str, Any]]:
-        """Fetch page extracts one title at a time.
-
-        MediaWiki TextExtracts shares a budget across multi-title queries and
-        often returns empty extracts for later titles (Iron Ore was blank in
-        batches). Single-title calls return full Obtaining sections.
-        """
+        """Fetch page extracts in parallel (single-title calls, concurrent)."""
         out: dict[str, dict[str, Any]] = {}
-        if not titles:
+        clean = [t for t in titles if t][:6]
+        if not clean:
             return out
-        for title in titles:
-            if not title:
-                continue
+
+        async def one(title: str) -> tuple[str, dict[str, Any] | None]:
             try:
-                info = await self._extract_one(title)
-                if info is not None:
-                    out[title] = info
-                    resolved = info.get("resolved_title")
-                    if resolved and str(resolved) not in out:
-                        out[str(resolved)] = info
+                return title, await self._extract_one(title)
             except Exception as e:
                 log.warning("extract failed for %r: %s", title, e)
+                return title, None
+
+        results = await asyncio.gather(*[one(t) for t in clean])
+        for title, info in results:
+            if info is None:
+                continue
+            out[title] = info
+            resolved = info.get("resolved_title")
+            if resolved and str(resolved) not in out:
+                out[str(resolved)] = info
         return out
 
     async def _extract_one(self, title: str) -> dict[str, Any] | None:
@@ -1001,7 +1199,7 @@ class WikiSearch:
             "action": "query",
             "prop": "extracts|info",
             "explaintext": "1",
-            "exchars": "2200",
+            "exchars": "1200",
             "exlimit": "1",
             "inprop": "url",
             "redirects": "1",

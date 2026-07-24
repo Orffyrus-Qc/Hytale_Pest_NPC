@@ -205,11 +205,24 @@ public class PestChatListener {
         if (containsAny(c, "status", "what are you doing", "inventory", "where is base")) {
             return "Base: " + PestBaseState.describe()
                     + " | hunt=" + PestHuntState.isActive()
+                    + " | follow=" + PestFollowState.isActive()
                     + " | inv=" + shortInv();
         }
-        if (containsAny(c, "follow me", "come here", "stay close", "follow")) {
+        // Cancel first — "stop following" contains "follow"
+        if (containsAny(c, "stop following", "stay here", "stay home", "go home", "wait here",
+                "don't follow", "do not follow")) {
+            PestFollowState.clear();
+            return "I'll stop following. Say \"follow me\" when you want me close again.";
+        }
+        // Sticky follow — overrides stay-home / idle-hunt until timeout or cancel
+        if (containsAny(c, "follow me", "come here", "stay close", "come with me")
+                || c.equals("follow") || c.startsWith("follow ")) {
+            CompanionState.markCompanion(PestSpawner.PEST_ROLE, sender.getUuid());
+            PestHuntState.clear();
+            PestLootState.clear();
+            PestFollowState.enable("chat follow me", 15 * 60 * 1000L);
             ManualMoveState.request(PestSpawner.PEST_ROLE, ManualMoveState.Kind.FORWARD);
-            return "Staying with you.";
+            return "On you — following now (won't sit at base until you say stay/go home).";
         }
         if (containsAny(c, "stop hunting", "stop fight", "stand down", "peace")) {
             PestHuntState.clear();

@@ -1,5 +1,7 @@
 .env
 data/
+# Ollama weights (large) — kept under project path but not committed
+models/ollama/
 __pycache__/
 *.pyc
 *.pyo

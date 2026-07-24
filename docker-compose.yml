@@ -1,14 +1,36 @@
 # Independent Hytale AI NPC learning stack
-# Brain runs in Docker; Hytale stays on the Windows host.
-# Game truth enters via: (1) read-only file mounts, (2) WebSocket from a server plugin.
+# Brain + local Qwen (Ollama) live under this project folder.
+# Hytale stays on the Windows host.
 
 services:
+  # Local Qwen weights are stored in ./models/ollama (inside hytale-pest-npc)
+  ollama:
+    image: ollama/ollama:latest
+    container_name: hytale-pest-npc-ollama
+    restart: unless-stopped
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ./models/ollama:/root/.ollama
+    environment:
+      # Keep models under the project bind-mount
+      OLLAMA_MODELS: /root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
   brain:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: hytale-pest-npc-brain
     restart: unless-stopped
+    depends_on:
+      ollama:
+        condition: service_started
     ports:
       - "${BRAIN_PORT:-8766}:8766"
       - "${API_PORT:-8780}:8780"
@@ -21,11 +43,15 @@ services:
       BRAIN_PORT: "8766"
       API_PORT: "8780"
       SIM_MODE: ${SIM_MODE:-0}
+      # Local Qwen via project Ollama (preferred — no cloud Grok)
+      # 3b = much faster on CPU; use qwen2.5:7b only if you have a GPU
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+      # Cloud LLM optional only (leave empty for local Qwen)
+      XAI_API_KEY: ${XAI_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
     volumes:
       - ./data:/data
       # Set HYTALE_HOST_PATH in .env (Windows: C:/Users/YOU/AppData/Roaming/Hytale)

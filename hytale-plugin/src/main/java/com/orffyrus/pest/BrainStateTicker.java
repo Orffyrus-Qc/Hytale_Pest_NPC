@@ -81,11 +81,20 @@ public final class BrainStateTicker {
         PestBehaviorRules.updateOwnerMotion(px, py, pz);
         double distToPest = PestBehaviorRules.distance(px, py, pz, nx, ny, nz);
         double distToBase = PestBehaviorRules.distanceToPestBase(px, py, pz);
-        boolean stayHome = PestBehaviorRules.shouldStayAtBase(px, py, pz);
-        boolean leaveFollow = PestBehaviorRules.shouldFollowFromBase(px, py, pz);
+        boolean chatFollow = PestFollowState.isActive();
+        // Chat/brain "follow me" overrides stay-home lock
+        boolean stayHome = !chatFollow && PestBehaviorRules.shouldStayAtBase(px, py, pz);
+        boolean leaveFollow = chatFollow || PestBehaviorRules.shouldFollowFromBase(px, py, pz);
         boolean canHome = PestBehaviorRules.canAutoBuildHome();
-        boolean idleHunt = PestBehaviorRules.isIdleHuntActive() && !stayHome;
+        boolean idleHunt = PestBehaviorRules.isIdleHuntActive() && !stayHome && !chatFollow;
         boolean invuln = PestBehaviorRules.isInvulnerablePhase();
+
+        // Sticky follow: keep catching up to owner (role Seek + teleport nudge when far)
+        if (chatFollow && !hasBlockingCombat()) {
+            if (distToPest > 8.0) {
+                ManualMoveState.request(PestSpawner.PEST_ROLE, ManualMoveState.Kind.FORWARD);
+            }
+        }
 
         // Respawn at bed if missing entity while base exists
         if (PestBaseState.isBuilt() && PestEntityTracker.entityId() == null) {
@@ -226,6 +235,7 @@ public final class BrainStateTicker {
                 + "\"idle_hunt\":" + idleHunt + ","
                 + "\"stay_home\":" + stayHome + ","
                 + "\"force_follow\":" + leaveFollow + ","
+                + "\"chat_follow\":" + chatFollow + ","
                 + "\"invulnerable\":" + invuln + ","
                 + "\"owner_dist\":" + String.format(java.util.Locale.US, "%.1f", distToPest) + ","
                 + "\"owner_dist_base\":" + String.format(java.util.Locale.US, "%.1f", distToBase) + ","
@@ -380,8 +390,17 @@ public final class BrainStateTicker {
                             "FIGHT: stone sword (slot2) via role AI | " + reason);
                 }
             }
-            case "follow_player", "idle" -> {
-                bridge.sendActionResult(true, "role-AI " + n + " | " + reason);
+            case "follow_player" -> {
+                // Brain asked us to stick with the owner — enable sticky follow + catch-up
+                PestFollowState.enable(
+                        reason != null && !reason.isBlank() ? reason : "brain follow_player",
+                        10 * 60 * 1000L);
+                PestHuntState.clear();
+                ManualMoveState.request(PestSpawner.PEST_ROLE, ManualMoveState.Kind.FORWARD);
+                bridge.sendActionResult(true, "FOLLOW: sticky + catch-up teleport | " + reason);
+            }
+            case "idle" -> {
+                bridge.sendActionResult(true, "role-AI idle | " + reason);
             }
             case "chat" -> {
                 if (text != null && !text.isBlank()) {
@@ -397,5 +416,13 @@ public final class BrainStateTicker {
         }
         LOGGER.atFine().log("Brain action " + n + " reason=" + reason + " source=" + source
                 + " last=" + lastActionName);
+    }
+
+    /** True when a combat target is near enough that follow catch-up should wait. */
+    private static boolean hasBlockingCombat() {
+        if (ThreatMemory.isActiveNear(PestSpawner.PEST_ROLE)) {
+            return ThreatMemory.lastDistance(PestSpawner.PEST_ROLE) <= 14.0;
+        }
+        return false;
     }
 }

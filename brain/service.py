@@ -113,21 +113,19 @@ class BrainService:
         state = state or self.last_state or GameState()
         query = WikiSearch.extract_query_from_chat(text)
 
-        # --- Game knowledge: Hytale wiki only when the message is a real question/topic ---
+        # --- Game knowledge: wiki sources + strong LLM (not hand-taught answers) ---
         if self.wiki.enabled and WikiSearch.is_game_question(text):
-            wiki_answer = await self.wiki.answer_player_question(text, limit=4)
+            wiki_answer = await self.policy.answer_from_wiki_sources(text, state, limit=2)
             action = NpcAction(
                 name="chat",
                 urgency=0.2,
-                reason=f"wiki Q&A: {query[:80]}",
+                reason=f"wiki+LLM Q&A: {query[:80]}",
                 text=wiki_answer or "",
                 source="wiki",
             )
             self.last_action = action
             if wiki_answer:
-                polished = await self.policy.polish_wiki_answer(query, wiki_answer, state)
-                return (polished or wiki_answer), action
-            # No relevant hit — say so (do not invent unrelated pages)
+                return wiki_answer, action
             return (
                 f"I looked on the Hytale wiki for “{query}” but nothing matched closely. "
                 "Name a specific item, mob, zone, or craft."
@@ -143,9 +141,9 @@ class BrainService:
             return "Got it.", action
 
         action = await self.decide_and_learn(state)
-        # Free-form chat: only wiki if it looks like a topic phrase with good hits
+        # Free-form chat: wiki + LLM when it looks like a topic (not a command)
         if self.wiki.enabled and query and not WikiSearch._looks_like_command(query):
-            wiki_answer = await self.wiki.answer_player_question(text, limit=3)
+            wiki_answer = await self.policy.answer_from_wiki_sources(text, state, limit=2)
             if wiki_answer and "nothing matched" not in wiki_answer.lower() and "couldn't reach" not in wiki_answer.lower():
                 return wiki_answer, action
 
@@ -177,7 +175,18 @@ class BrainService:
             "last_action": self.last_action.model_dump() if self.last_action else None,
             "last_situation": self.policy.situation_text(self.last_state) if self.last_state else None,
             "llm": {
+                "enabled": bool(self.settings.openai_api_key or self.settings.ollama_base_url),
                 "openai": bool(self.settings.openai_api_key),
                 "ollama": bool(self.settings.ollama_base_url),
+                "base_url": (
+                    self.settings.ollama_base_url
+                    if self.settings.ollama_base_url
+                    else (self.settings.openai_base_url or None)
+                ),
+                "model": (
+                    self.settings.ollama_model
+                    if self.settings.ollama_base_url
+                    else (self.settings.openai_model or None)
+                ),
             },
         }

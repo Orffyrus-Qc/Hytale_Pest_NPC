@@ -14,11 +14,15 @@ $lines = @(
     "BRAIN_PORT=8766"
     "API_PORT=8780"
     "SIM_MODE=0"
+    # Local Qwen inside hytale-pest-npc/models/ollama (Docker service "ollama")
+    "OLLAMA_BASE_URL=http://ollama:11434"
+    "OLLAMA_MODEL=qwen2.5:3b"
+    "OLLAMA_PORT=11434"
+    # Cloud LLM optional — leave empty when using local Qwen
+    "XAI_API_KEY="
     "OPENAI_API_KEY="
-    "OPENAI_BASE_URL=https://api.openai.com/v1"
-    "OPENAI_MODEL=gpt-4o-mini"
-    "OLLAMA_BASE_URL="
-    "OLLAMA_MODEL=llama3.2"
+    "OPENAI_BASE_URL="
+    "OPENAI_MODEL="
     "NPC_NAME=Pest"
 )
 

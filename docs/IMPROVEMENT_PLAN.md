@@ -68,7 +68,7 @@ This is a roadmap for when work resumes. Do **not** treat it as incomplete MVP �
 | P2.3 | Offline fallback index from mounted game JSON | When wiki is down or thin |
 | P2.4 | Cite 1–2 wiki URLs only; shorter in-game lines | Chat length limits |
 | P2.5 | Conversation memory: last N Q&A topics | Better “and the pickaxe?” follow-ups |
-| P2.6 | Optional LLM polish always grounded on wiki extract | Never invent locations |
+| P2.6 | **Done direction:** strong LLM synthesizes from wiki sources (not per-answer teaching) | Wire `XAI_API_KEY` + `grok-4.5` |
 
 **Exit:** Craft + “where + how” answers stay on-topic ≥ most resource questions.
 

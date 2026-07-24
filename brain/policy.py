@@ -86,7 +86,7 @@ class PlayPolicy:
             parts.append("has_bed=1")
         if raw.get("can_auto_home"):
             parts.append("can_auto_home=1")
-        if raw.get("force_follow"):
+        if raw.get("force_follow") or raw.get("chat_follow"):
             parts.append("force_follow=1")
         if raw.get("idle_hunt"):
             parts.append("idle_hunt=1")
@@ -187,9 +187,17 @@ class PlayPolicy:
         raw = state.raw or {}
         looting = bool(raw.get("looting")) or goal == "loot"
         near_threats = self._near_threats(state)
-        force_follow = bool(raw.get("force_follow")) or goal == "follow"
-        stay_home = bool(raw.get("stay_home")) or goal == "stay_home"
-        idle_hunt = bool(raw.get("idle_hunt")) or bool(raw.get("hunting")) or goal == "hunt"
+        force_follow = (
+            bool(raw.get("force_follow"))
+            or bool(raw.get("chat_follow"))
+            or goal == "follow"
+        )
+        # Chat sticky follow always wins over stay_home
+        stay_home = (bool(raw.get("stay_home")) or goal == "stay_home") and not force_follow
+        idle_hunt = (
+            (bool(raw.get("idle_hunt")) or bool(raw.get("hunting")) or goal == "hunt")
+            and not force_follow
+        )
         can_auto_home = bool(raw.get("can_auto_home"))
         player_places = int(raw.get("player_places") or 0)
         owner_dist_base = float(raw.get("owner_dist_base") or 0.0)
@@ -566,39 +574,72 @@ class PlayPolicy:
         log.info("Seeded %d curriculum lessons (base + combat + tools)", n)
         return n
 
-    async def polish_wiki_answer(
-        self, query: str, wiki_answer: str, state: GameState
+    def llm_available(self) -> bool:
+        return bool(self.settings.openai_api_key or self.settings.ollama_base_url)
+
+    async def answer_from_wiki_sources(
+        self,
+        player_text: str,
+        state: GameState,
+        *,
+        limit: int = 5,
     ) -> str | None:
-        """Optional LLM rewrite that must stay faithful to the wiki answer."""
-        if not self.settings.openai_api_key and not self.settings.ollama_base_url:
+        """
+        Strong-LLM path: wiki is evidence only; model answers the whole question
+        (what / where / how) without hand-taught per-topic templates.
+        """
+        if not self.wiki or not self.wiki.enabled:
             return None
+        pack = await self.wiki.gather_sources(player_text, limit=limit)
+        if pack.get("error") in {"filler", "empty query"}:
+            return None
+        if pack.get("error") == "need_topic":
+            return "What topic should I look up on the Hytale wiki?"
+        if not pack.get("sources"):
+            if pack.get("error") == "wiki_search disabled":
+                return None
+            return (
+                f"I checked the Hytale wiki for “{pack.get('search_q') or pack.get('query')}” "
+                "but nothing solid came back. Try a clearer item, mob, zone, or craft name."
+            )
+
+        query = pack.get("search_q") or pack.get("query") or player_text
+        # Trim context hard for local CPU models
+        context = (pack.get("context") or "")[:2200]
+
+        if not self.llm_available():
+            return await self.wiki.answer_player_question(player_text, limit=limit)
+
         prompt = (
-            f"You are {self.settings.npc_name}, a male Hytale companion (he/him). "
-            f"The player asked: {query}. "
-            f"Answer ONLY using these Hytale wiki facts — do not invent mechanics:\n"
-            f"{wiki_answer}\n"
-            f"Reply in 1–3 short in-character sentences. Keep the facts."
+            f"You are {self.settings.npc_name}, a male Hytale companion (he/him).\n"
+            f"Answer the player in 2-4 short sentences using ONLY the wiki facts.\n"
+            f"Include where/how to get items when the sources say so. Do not invent facts.\n"
+            f"No section headers. One wiki URL at end optional.\n\n"
+            f"{context}\n\n"
+            f"Q: {query}\n"
+            f"A:"
         )
         try:
             if self.settings.ollama_base_url:
                 return await self._ollama(prompt)
-            return await self._openai(prompt, max_tokens=180)
+            if self.settings.openai_api_key:
+                return await self._openai(prompt, max_tokens=200)
+            return await self.wiki.answer_player_question(player_text, limit=limit)
         except Exception as e:
-            log.warning("wiki polish failed: %s", e)
-            return None
+            log.warning("wiki LLM answer failed (using raw wiki extract): %s", e)
+            return await self.wiki.answer_player_question(player_text, limit=limit)
 
     async def maybe_chat_reply(
         self, player_text: str, state: GameState, action: NpcAction
     ) -> str | None:
-        """Answer player chat; game questions use Hytale wiki first."""
+        """Answer player chat; game questions use wiki + strong LLM."""
         query = WikiSearch.extract_query_from_chat(player_text)
 
         if self.wiki and self.wiki.enabled and query:
             try:
-                wiki_answer = await self.wiki.answer_player_question(player_text, limit=3)
+                wiki_answer = await self.answer_from_wiki_sources(player_text, state)
                 if wiki_answer:
-                    polished = await self.polish_wiki_answer(query, wiki_answer, state)
-                    return polished or wiki_answer
+                    return wiki_answer
             except Exception as e:
                 log.warning("wiki chat lookup failed: %s", e)
 
@@ -686,11 +727,45 @@ class PlayPolicy:
             return data["choices"][0]["message"]["content"].strip()
 
     async def _ollama(self, prompt: str) -> str:
-        body = {"model": self.settings.ollama_model, "prompt": prompt, "stream": False}
-        async with httpx.AsyncClient(base_url=self.settings.ollama_base_url, timeout=60) as client:
+        """Local Qwen via Ollama — keep prompts short and cap tokens for CPU latency."""
+        import time
+
+        t0 = time.time()
+        body = {
+            "model": self.settings.ollama_model,
+            "prompt": prompt,
+            "stream": False,
+            "keep_alive": "30m",
+            "options": {
+                "temperature": float(self.harness.get("generation", {}).get("temperature", 0.2)),
+                # Hard cap output length — long answers hang CPU for minutes
+                "num_predict": 120,
+                "num_ctx": 2048,
+            },
+        }
+        # 45s hard budget: better a short fallback than silent hang
+        async with httpx.AsyncClient(base_url=self.settings.ollama_base_url, timeout=45.0) as client:
             r = await client.post("/api/generate", json=body)
             r.raise_for_status()
-            return str(r.json().get("response", "")).strip()
+            text = str(r.json().get("response", "")).strip()
+            log.info(
+                "ollama generate model=%s chars=%d in %.2fs",
+                self.settings.ollama_model,
+                len(text),
+                time.time() - t0,
+            )
+            return text
+
+    async def warm_ollama(self) -> None:
+        """Load model into memory so first player question is not a cold start."""
+        if not self.settings.ollama_base_url:
+            return
+        try:
+            log.info("Warming Ollama model %s ...", self.settings.ollama_model)
+            await self._ollama("Reply with the single word ready.")
+            log.info("Ollama model warm")
+        except Exception as e:
+            log.warning("Ollama warm failed (will retry on first chat): %s", e)
 
     def _action_from_name(
         self, name: str, state: GameState, source: str, reason: str

@@ -49,7 +49,8 @@ If you already spoke to him recently, you can omit the name for a short while.
 | **Hunt** | `hunt`, `kill animals`, `get hide`, `find prey` |
 | **Loot** | `loot`, `pick up`, `pickup`, `gather drops` |
 | **Status** | `status`, `what are you doing`, `inventory`, `where is base` |
-| **Follow** | `follow me`, `come here`, `stay close`, `follow` |
+| **Follow** | `follow me`, `come here`, `stay close`, `come with me` — sticky ~15 min, overrides stay-home |
+| **Stop follow** | `stop following`, `stay here`, `go home`, `wait here` |
 | **Stand down** | `stop hunting`, `stop fight`, `stand down`, `peace` |
 | **Move nudge** | `forward`, `walk`, `go ahead`, `jump`, `hop` (or combine, e.g. jump + forward) |
 | **Game wiki Q&A** | Questions (`?`, `what is…`, `how do…`, `tell me about…`) → brain looks up the **Hytale wiki** and answers from page extracts |
@@ -269,10 +270,26 @@ python plugin-bridge/example_client.py
 | `configs/harness.yaml` | 6-dim control defaults (tools, memory, mode, rate limits) |
 | `data/` | Persisted demos, experience, file index, patterns |
 
-Optional LLM (dialogue only; play works offline without keys):
+### LLM for game questions (local Qwen — default)
 
-- OpenAI-compatible: set `OPENAI_API_KEY`  
-- Ollama on host: `OLLAMA_BASE_URL=http://host.docker.internal:11434`
+Wiki pages are **evidence only**. A **local Qwen** model (Ollama in Docker) synthesizes answers — no cloud Grok required.
+
+| Piece | Detail |
+|-------|--------|
+| Service | `ollama` in `docker-compose.yml` |
+| Weights path | **`./models/ollama/`** inside `hytale-pest-npc` |
+| Default model | **`qwen2.5:3b`** (CPU-friendly; use `qwen2.5:7b` only if you have GPU) |
+| Brain URL | `OLLAMA_BASE_URL=http://ollama:11434` |
+
+Wiki fetch is parallel + capped; Ollama generation is limited (`num_predict=120`, 45s timeout) so chat does not hang forever.
+
+```powershell
+.\scripts\up.ps1            # starts ollama + brain; pulls Qwen if missing
+# or pull only:
+.\scripts\pull-qwen.ps1
+```
+
+Play (hunt/build/follow) works without the LLM. Wiki Q&A without a model falls back to a short raw extract.
 
 ---
 

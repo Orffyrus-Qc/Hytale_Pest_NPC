@@ -20,14 +20,17 @@ class Settings(BaseSettings):
     sim_mode: bool = False
     npc_name: str = "Pest"
 
+    # OpenAI-compatible cloud API (optional; local Qwen/Ollama is preferred)
     openai_api_key: str = ""
-    openai_base_url: str = "https://api.openai.com/v1"
-    openai_model: str = "gpt-4o-mini"
-    ollama_base_url: str = ""
-    ollama_model: str = "llama3.2"
+    openai_base_url: str = ""
+    openai_model: str = ""
+    # Local Qwen via project Ollama (default for Docker stack)
+    # 3b is much faster on CPU; set OLLAMA_MODEL=qwen2.5:7b for quality if you have GPU.
+    ollama_base_url: str = "http://ollama:11434"
+    ollama_model: str = "qwen2.5:3b"
 
     harness_path: Path = Field(default=Path("/app/configs/harness.yaml"))
-    wiki_api_url: str = "https://hytale.wiki.gg/api.php"
+    wiki_api_url: str = "https://hytalewiki.org/api.php"
 
     def ensure_dirs(self) -> None:
         for sub in (
@@ -65,4 +68,37 @@ def get_settings() -> Settings:
     wiki = os.getenv("WIKI_API_URL", "").strip()
     if wiki:
         s.wiki_api_url = wiki
+
+    # Local Qwen first (project Docker Ollama). Cloud only if no Ollama URL.
+    ollama = os.getenv("OLLAMA_BASE_URL", "").strip()
+    if ollama:
+        s.ollama_base_url = ollama
+    elif not s.ollama_base_url:
+        s.ollama_base_url = "http://ollama:11434"
+    om = os.getenv("OLLAMA_MODEL", "").strip()
+    if om:
+        s.ollama_model = om
+    elif not s.ollama_model:
+        s.ollama_model = "qwen2.5:3b"
+
+    xai = os.getenv("XAI_API_KEY", "").strip()
+    openai_key = os.getenv("OPENAI_API_KEY", "").strip()
+    # Optional cloud override (only used if Ollama is disabled via empty OLLAMA_BASE_URL)
+    use_cloud = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434").strip() == ""
+    if use_cloud and (xai or openai_key):
+        if xai and not openai_key:
+            s.openai_api_key = xai
+            s.openai_base_url = os.getenv("OPENAI_BASE_URL", "https://api.x.ai/v1").strip() or "https://api.x.ai/v1"
+            s.openai_model = os.getenv("OPENAI_MODEL", "grok-4.5").strip() or "grok-4.5"
+        elif openai_key:
+            s.openai_api_key = openai_key
+            base = os.getenv("OPENAI_BASE_URL", "").strip()
+            if base:
+                s.openai_base_url = base
+            model = os.getenv("OPENAI_MODEL", "").strip()
+            if model:
+                s.openai_model = model
     return s
+
+def has_llm(settings: Settings) -> bool:
+    return bool(settings.openai_api_key or settings.ollama_base_url)
