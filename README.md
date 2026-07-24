@@ -5,6 +5,9 @@ Runs in **its own Docker stack** (separate from Mori/OpenHands/NpcAiStack). The 
 
 **NPC name:** `Pest` (male — he/him). Change with `NPC_NAME` / `configs/harness.yaml` if needed.
 
+> **Project status:** MVP **shipped** · **Paused** for now.  
+> Future work is planned in [`docs/IMPROVEMENT_PLAN.md`](docs/IMPROVEMENT_PLAN.md) (install/CI, smarter wiki/craft, behavior, learning, plugin robustness). Resume from that file when continuing.
+
 > **Commands are `/pest …` (not `/auri`).** The old Auri name was fully renamed.
 
 ### Companion priorities (live policy)
