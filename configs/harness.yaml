@@ -1,0 +1,47 @@
+# Six-dimensional harness for the Hytale AI NPC (MemoHarness-inspired control layer).
+# Edited by the policy learner over time; safe defaults for Early Access.
+
+npc_name: Pest
+
+# D1 Context assembly
+context:
+  max_nearby_entities: 24
+  max_file_snippets: 8
+  include_player_demo_window: 32
+  include_map_radius_blocks: 48
+
+# D2 Tool interaction
+tools:
+  file_inspect: true
+  state_ingest: true
+  player_demo_record: true
+  memory_probe: false   # host process memory — off by default (prefer plugin state)
+  wiki_search: false
+  ask_player: true
+
+# D3 Generation control
+generation:
+  temperature: 0.2
+  max_plan_tokens: 512
+  prefer_policy_over_llm: true
+
+# D4 Orchestration
+orchestration:
+  mode: hybrid          # observe | imitate | hybrid | autonomous
+  tick_hz: 4
+  max_steps_per_goal: 40
+  replan_on_damage: true
+
+# D5 Memory management
+memory:
+  experience_max_entries: 5000
+  demo_max_sessions: 200
+  distill_every_n: 25
+  keep_failed_lessons: true
+
+# D6 Output processing
+output:
+  action_schema: hytale_v1
+  validate_actions: true
+  fallback_action: idle
+  rate_limit_actions_per_sec: 8

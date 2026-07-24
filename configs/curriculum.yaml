@@ -1,0 +1,58 @@
+# Pest survival + base-building curriculum
+
+npc_name: Pest
+
+priority:
+  1_fight: "Near hostiles (unless stay_home) → sword"
+  2_follow_leave_base: "If player ≥200 from Pest base → follow"
+  3_stay_home: "If Pest has base and player <200 from it → stay at home / bed"
+  4_idle_hunt: "If player idle 30–300s random → hunt safe prey"
+  5_home_build: "If player places >20 blocks in 300s → build home ~100 from player base"
+  6_gather: "Fibre/wood/stone with tools"
+  7_follow: "Else stay near owner"
+
+behavior:
+  player_build_trigger:
+    places: 20
+    window_seconds: 300
+    player_base_radius: 20
+  Pest_home_offset_from_player_base: 100
+  leave_base_follow_distance: 200
+  invulnerable_until_base: true
+  bed_respawn: true
+  idle_hunt_seconds: [30, 300]
+
+base_building:
+  concept: |
+    When the player starts building (20+ blocks in 300s), Pest builds her own home
+    about 100 blocks from the player's build cluster.
+    Home: empty flat site, floor one block above ground, 9x9, pathable 2-wide doorway
+    (NPC can walk in), bed inside for respawn. Invulnerable until base+bed exist.
+    Stay at home until player is 200+ blocks from Pest base, then follow.
+  footprint: "9x9 outer, floor at ground+1, walls 3 high, 1-wide × 2-tall pathable south doorway"
+  blocks:
+    walls_roof_floor: Wood_Softwood_Planks
+    door: Furniture_Crude_Door (in doorway opening, headroom above)
+    bed: Furniture_Crude_Bed
+  action: build_base
+  force_command: "/pest base force"
+
+tools:
+  pick: { item: Tool_Pickaxe_Crude, hotbar_slot: 0 }
+  axe: { item: Weapon_Axe_Stone_Trork, hotbar_slot: 1 }
+  sword: { item: Weapon_Sword_Stone_Trork, hotbar_slot: 2 }
+  wood: { item: Wood_Softwood_Planks, hotbar_slot: 3 }
+  door: { item: Furniture_Crude_Door, hotbar_slot: 4 }
+  bed: { item: Furniture_Crude_Bed, hotbar_slot: 5 }
+
+lessons:
+  - situation: "player places 20+ blocks in 300s"
+    action: build_base
+    note: "Home ~100 from player base, empty +1Y pathable door"
+  - situation: "owner_dist_base>=200"
+    action: follow_player
+  - situation: "stay_home base built owner near"
+    action: idle
+  - situation: "owner idle 30-300s"
+    action: attack
+    item: Weapon_Sword_Stone_Trork

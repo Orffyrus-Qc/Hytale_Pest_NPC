@@ -1,0 +1,14 @@
+﻿.env
+data/
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+*.log
+.DS_Store
+hytale-plugin/.gradle/
+hytale-plugin/build/
+hytale-plugin/run/
+**/.gradle/
+**/build/

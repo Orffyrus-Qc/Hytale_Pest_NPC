@@ -1,0 +1,41 @@
+# Independent Hytale AI NPC learning stack
+# Brain runs in Docker; Hytale stays on the Windows host.
+# Game truth enters via: (1) read-only file mounts, (2) WebSocket from a server plugin.
+
+services:
+  brain:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hytale-pest-npc-brain
+    restart: unless-stopped
+    ports:
+      - "${BRAIN_PORT:-8766}:8766"
+      - "${API_PORT:-8780}:8780"
+    env_file:
+      - .env
+    environment:
+      HYTALE_MOUNT: /hytale
+      DATA_DIR: /data
+      BRAIN_HOST: "0.0.0.0"
+      BRAIN_PORT: "8766"
+      API_PORT: "8780"
+      SIM_MODE: ${SIM_MODE:-0}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
+    volumes:
+      - ./data:/data
+      # Set HYTALE_HOST_PATH in .env (Windows: C:/Users/YOU/AppData/Roaming/Hytale)
+      - type: bind
+        source: ${HYTALE_HOST_PATH}
+        target: /hytale
+        read_only: true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8780/health')"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 15s

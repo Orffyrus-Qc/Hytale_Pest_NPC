@@ -1,0 +1,596 @@
+{
+  "Type": "Generic",
+  "$Comment": "Player-like companion: humanoid model, hotbar tools, place/pickup, follow/fight.",
+  "Parameters": {
+    "NameTranslationKey": {
+      "Value": "server.npcRoles.pest.name",
+      "Description": "Translation key for NPC name display"
+    },
+    "Weapons": {
+      "Value": [
+        "Tool_Pickaxe_Crude",
+        "Weapon_Axe_Stone_Trork",
+        "Weapon_Sword_Stone_Trork",
+        "Wood_Softwood_Planks",
+        "Furniture_Crude_Door",
+        "Furniture_Crude_Bed"
+      ],
+      "Description": "Tools + base kit: softwood planks, crude door, crude bed (closed room + spawn)"
+    }
+  },
+  "StartState": "Idle",
+  "DefaultNPCAttitude": "Ignore",
+  "DefaultPlayerAttitude": "Friendly",
+  "Appearance": "Outlander_Marauder",
+  "AttitudeGroup": "Kweebec",
+  "MaxHealth": 100,
+  "IsMemory": true,
+  "MemoriesCategory": "Pest",
+  "NameTranslationKey": { "Compute": "NameTranslationKey" },
+  "DisableDamageGroups": [ "Self" ],
+  "CombatConfig": {
+    "EntityEffect": "Immunity_Environmental"
+  },
+  "BusyStates": [ "$Interaction" ],
+  "Invulnerable": false,
+  "KnockbackScale": 0.5,
+  "HotbarSize": 6,
+  "HotbarItems": { "Compute": "Weapons" },
+  "MotionControllerList": [
+    {
+      "Type": "Walk",
+      "MaxWalkSpeed": 10,
+      "Gravity": 10,
+      "RunThreshold": 0.25,
+      "MaxFallSpeed": 15,
+      "MaxRotationSpeed": 360,
+      "Acceleration": 12,
+      "MaxClimbHeight": 1
+    }
+  ],
+  "Instructions": [
+    {
+      "Instructions": [
+        {
+          "$Comment": "Idle — wave when a player approaches",
+          "Sensor": { "Type": "State", "State": "Idle" },
+          "Instructions": [
+            {
+              "ActionsBlocking": true,
+              "Sensor": { "Type": "Player", "Range": 8 },
+              "Actions": [
+                { "Type": "State", "State": "Watching" }
+              ]
+            },
+            {
+              "Sensor": { "Type": "Any" },
+              "BodyMotion": { "Type": "Nothing" }
+            }
+          ]
+        },
+        {
+          "$Comment": "Watching — player-like companion: tools, pickup, place, follow, fight",
+          "Sensor": { "Type": "State", "State": "Watching" },
+          "Instructions": [
+            {
+              "Continue": true,
+              "Sensor": {
+                "Type": "And",
+                "Sensors": [
+                  { "Type": "Player", "Range": 12 },
+                  { "Type": "Not", "Sensor": { "Type": "Target", "Range": 999 } }
+                ]
+              },
+              "HeadMotion": { "Type": "Watch" }
+            },
+            {
+              "$Comment": "Threat note for brain — keep range tight so distant mobs do not block base-building",
+              "Continue": true,
+              "Sensor": {
+                "Type": "Mob",
+                "Range": 16,
+                "GetPlayers": false,
+                "GetNPCs": true,
+                "LockOnTarget": true,
+                "Filters": [ { "Type": "IsHostileSpecies" } ],
+                "Prioritiser": {
+                  "Type": "Attitude",
+                  "AttitudesByPriority": [ "Hostile", "Neutral", "Ignore", "Friendly", "Revered" ]
+                }
+              },
+              "Actions": [ { "Type": "NoteNearbyThreat" } ]
+            },
+            {
+              "$Comment": "HUNT MODE: lock safe prey only (IsHuntPrey blocks merchants/friendlies)",
+              "Continue": true,
+              "Sensor": {
+                "Type": "And",
+                "Sensors": [
+                  { "Type": "IsCompanion" },
+                  { "Type": "IsHunting" },
+                  {
+                    "Type": "Mob",
+                    "Range": 48,
+                    "GetPlayers": false,
+                    "GetNPCs": true,
+                    "LockOnTarget": true,
+                    "Filters": [ { "Type": "IsHuntPrey" } ],
+                    "Prioritiser": {
+                      "Type": "Attitude",
+                      "AttitudesByPriority": [ "Hostile", "Neutral", "Ignore", "Friendly", "Revered" ]
+                    }
+                  }
+                ]
+              },
+              "Actions": [ { "Type": "NoteNearbyPrey" } ]
+            },
+            {
+              "$Comment": "HUNT combat: sword + melee when hunting and target in range",
+              "Sensor": {
+                "Type": "And",
+                "Sensors": [
+                  { "Type": "IsCompanion" },
+                  { "Type": "IsHunting" },
+                  { "Type": "Target", "Range": 3 }
+                ]
+              },
+              "Actions": [
+                {
+                  "Type": "Inventory",
+                  "Operation": "EquipHotbar",
+                  "Slot": 2,
+                  "UseTarget": false
+                },
+                {
+                  "Type": "Attack",
+                  "Attack": "Outlander_Marauder_Sword_Swing_Left",
+                  "AttackPauseRange": [ 0.25, 0.75 ]
+                }
+              ],
+              "HeadMotion": { "Type": "Watch" },
+              "BodyMotion": { "Type": "Nothing" }
+            },
+            {
+              "$Comment": "HUNT chase: close distance on locked prey with sword equipped",
+              "Sensor": {
+                "Type": "And",
+                "Sensors": [
+                  { "Type": "IsCompanion" },
+                  { "Type": "IsHunting" },
+                  { "Type": "Target", "Range": 48 }
+                ]
+              },
+              "Actions": [
+                {
+                  "Type": "Inventory",
+                  "Operation": "EquipHotbar",
+                  "Slot": 2,
+                  "UseTarget": false
+                }
+              ],
+              "HeadMotion": { "Type": "Watch" },
+              "BodyMotion": {
+                "Type": "Seek",
+                "RelativeSpeed": 1,
+                "StopDistance": 2,
+                "SlowDownDistance": 5,
+                "Falloff": 2,
+                "RelaxedMoveConstraints": true
+              }
+            },
+            {
+              "$Comment": "Owner damaged — mark nearby hostiles (tight range for brain defend priority)",
+              "Continue": true,
+              "Sensor": {
+                "Type": "And",
+                "Sensors": [
+                  { "Type": "IsCompanion" },
+                  {
+                    "Type": "EntityEvent",
+                    "Range": 24,
+                    "EventType": "Damage",
+                    "NPCGroup": "Player",
+                    "SearchType": "PlayerOnly"
+                  },
+                  {
+                    "Type": "Mob",
+                    "Range": 20,
+                    "GetPlayers": false,
+                    "GetNPCs": true,
+                    "LockOnTarget": true,
+                    "Filters": [ { "Type": "IsHostileSpecies" } ],
+                    "Prioritiser": {
+                      "Type": "Attitude",
+                      "AttitudesByPriority": [ "Hostile", "Neutral", "Ignore", "Friendly", "Revered" ]
+                    }
+                  }
+                ]
+              },
+              "Actions": [ { "Type": "NoteNearbyThreat" } ]
+            },
+            {
+              "$Comment": "MINE: equip stone-tier pick (slot 0) — rock/ore",
+              "Continue": true,
+              "Sensor": {
+                "Type": "And",
+                "Sensors": [
+                  { "Type": "IsCompanion" },
+                  { "Type": "IsManualMove", "Kind": "FORWARD" }
+                ]
+              },
+              "Actions": [
+                {
+                  "Type": "Inventory",
+                  "Operation": "EquipHotbar",
+                  "Slot": 0,
+                  "UseTarget": false
+                }
+              ]
+            },
+            {
+              "$Comment": "CHOP/FIBRE path: equip stone axe (slot 1) — wood / vegetation",
+              "Continue": true,
+              "Sensor": {
+                "Type": "And",
+                "Sensors": [
+                  { "Type": "IsCompanion" },
+                  { "Type": "IsManualMove", "Kind": "FORWARD_JUMP" }
+                ]
+              },
+              "Actions": [
+                {
+                  "Type": "Inventory",
+                  "Operation": "EquipHotbar",
+                  "Slot": 1,
+                  "UseTarget": false
+                }
+              ]
+            },
+            {
+              "$Comment": "PLACE SLEEPING BAG: Crude Bed (slot 5). Full base (walls+door+bed) is PestBaseBuilder bulk place.",
+              "Continue": true,
+              "Sensor": {
+                "Type": "And",
+                "Sensors": [
+                  { "Type": "IsCompanion" },
+                  { "Type": "IsManualMove", "Kind": "JUMP" }
+                ]
+              },
+              "Actions": [
+                {
+                  "Type": "Inventory",
+                  "Operation": "EquipHotbar",
+                  "Slot": 5,
+                  "UseTarget": false
+                },
+                {
+                  "Type": "SetBlockToPlace",
+                  "Block": "Furniture_Crude_Bed"
+                }
+              ]
+            },
+            {
+              "Sensor": {
+                "Type": "And",
+                "Sensors": [
+                  { "Type": "IsCompanion" },
+                  {
+                    "Type": "CanPlaceBlock",
+                    "Direction": "Forward",
+                    "Offset": "BodyPosition"
+                  },
+                  { "Type": "IsManualMove", "Kind": "JUMP" }
+                ]
+              },
+              "Actions": [
+                { "Type": "PlaceBlock" }
+              ]
+            },
+            {
+              "$Comment": "Self-damage → ensure sword equipped for fight-back",
+              "Continue": true,
+              "Sensor": {
+                "Type": "And",
+                "Sensors": [
+                  { "Type": "IsCompanion" },
+                  { "Type": "Damage", "Combat": true }
+                ]
+              },
+              "Actions": [
+                {
+                  "Type": "Inventory",
+                  "Operation": "EquipHotbar",
+                  "Slot": 2,
+                  "UseTarget": false
+                }
+              ]
+            },
+            {
+              "$Comment": "LOOT after hunt/fight: wide hoover for combat drops (hide, meat, etc.)",
+              "Continue": true,
+              "Sensor": {
+                "Type": "And",
+                "Sensors": [
+                  { "Type": "IsCompanion" },
+                  { "Type": "IsLooting" }
+                ]
+              },
+              "Actions": [
+                {
+                  "Type": "PickUpItem",
+                  "Range": 5.0,
+                  "Hoover": true,
+                  "StorageTarget": "Hotbar"
+                }
+              ]
+            },
+            {
+              "$Comment": "Normal hoover pickup near owner",
+              "Continue": true,
+              "Sensor": {
+                "Type": "And",
+                "Sensors": [
+                  { "Type": "IsCompanion" },
+                  { "Type": "Player", "Range": 40 }
+                ]
+              },
+              "Actions": [
+                {
+                  "Type": "PickUpItem",
+                  "Range": 2.5,
+                  "Hoover": true,
+                  "StorageTarget": "Hotbar"
+                }
+              ]
+            },
+            {
+              "Sensor": {
+                "Type": "And",
+                "Sensors": [
+                  { "Type": "Player", "Range": 999 },
+                  { "Type": "IsManualMove", "Kind": "FORWARD" }
+                ]
+              },
+              "BodyMotion": {
+                "Type": "Teleport",
+                "OffsetRange": [ 1.5, 2.5 ],
+                "OffsetSector": 60,
+                "MaxYOffset": 0.6,
+                "Orientation": "Unchanged"
+              }
+            },
+            {
+              "Sensor": {
+                "Type": "And",
+                "Sensors": [
+                  { "Type": "Player", "Range": 999 },
+                  { "Type": "IsManualMove", "Kind": "JUMP" }
+                ]
+              },
+              "BodyMotion": {
+                "Type": "Teleport",
+                "OffsetRange": [ 0.3, 0.8 ],
+                "OffsetSector": 90,
+                "MaxYOffset": 1.5,
+                "Orientation": "Unchanged"
+              }
+            },
+            {
+              "Sensor": {
+                "Type": "And",
+                "Sensors": [
+                  { "Type": "Player", "Range": 999 },
+                  { "Type": "IsManualMove", "Kind": "FORWARD_JUMP" }
+                ]
+              },
+              "BodyMotion": {
+                "Type": "Teleport",
+                "OffsetRange": [ 1.5, 2.5 ],
+                "OffsetSector": 60,
+                "MaxYOffset": 1.5,
+                "Orientation": "Unchanged"
+              }
+            },
+            {
+              "Sensor": {
+                "Type": "And",
+                "Sensors": [
+                  { "Type": "Not", "Sensor": { "Type": "IsCompanion" } },
+                  { "Type": "Not", "Sensor": { "Type": "Player", "Range": 12 } }
+                ]
+              },
+              "Actions": [
+                { "Type": "PlayAnimation", "Slot": "Status" },
+                { "Type": "State", "State": "Idle" }
+              ]
+            },
+            {
+              "$Comment": "FIGHT: always stone sword (slot 2) when target locked — never tools in combat",
+              "Sensor": {
+                "Type": "And",
+                "Sensors": [
+                  { "Type": "IsCompanion" },
+                  { "Type": "Target", "Range": 3 }
+                ]
+              },
+              "Actions": [
+                {
+                  "Type": "Inventory",
+                  "Operation": "EquipHotbar",
+                  "Slot": 2,
+                  "UseTarget": false
+                },
+                {
+                  "Type": "Attack",
+                  "Attack": "Outlander_Marauder_Sword_Swing_Right",
+                  "AttackPauseRange": [ 0.25, 0.75 ]
+                }
+              ],
+              "HeadMotion": { "Type": "Watch" },
+              "BodyMotion": { "Type": "Nothing" }
+            },
+            {
+              "Sensor": {
+                "Type": "And",
+                "Sensors": [
+                  { "Type": "IsCompanion" },
+                  { "Type": "Target", "Range": 200 }
+                ]
+              },
+              "HeadMotion": { "Type": "Watch" },
+              "BodyMotion": {
+                "Type": "Seek",
+                "RelativeSpeed": 1,
+                "StopDistance": 2,
+                "SlowDownDistance": 5,
+                "Falloff": 2,
+                "RelaxedMoveConstraints": true
+              }
+            },
+            {
+              "Sensor": {
+                "Type": "And",
+                "Sensors": [
+                  { "Type": "IsCompanion" },
+                  {
+                    "Type": "Player",
+                    "Range": 400,
+                    "Filters": [ { "Type": "IsOwner" } ]
+                  },
+                  {
+                    "Type": "Not",
+                    "Sensor": {
+                      "Type": "Player",
+                      "Range": 120,
+                      "Filters": [ { "Type": "IsOwner" } ]
+                    }
+                  }
+                ]
+              },
+              "BodyMotion": {
+                "Type": "Teleport",
+                "OffsetRange": [ 3, 5 ],
+                "OffsetSector": 360
+              }
+            },
+            {
+              "Sensor": {
+                "Type": "And",
+                "Sensors": [
+                  { "Type": "IsCompanion" },
+                  {
+                    "Type": "Player",
+                    "Range": 200,
+                    "Filters": [ { "Type": "IsOwner" } ]
+                  }
+                ]
+              },
+              "BodyMotion": {
+                "Type": "Seek",
+                "RelativeSpeed": 1,
+                "StopDistance": 3,
+                "SlowDownDistance": 7,
+                "Falloff": 2,
+                "RelaxedMoveConstraints": true
+              }
+            },
+            {
+              "Sensor": { "Type": "Any" },
+              "BodyMotion": { "Type": "Nothing" }
+            }
+          ]
+        },
+        {
+          "Sensor": { "Type": "State", "State": "$Interaction" },
+          "Instructions": [
+            {
+              "Continue": true,
+              "Sensor": { "Type": "Target", "Range": 10 },
+              "HeadMotion": { "Type": "Watch" }
+            },
+            {
+              "Continue": true,
+              "Sensor": {
+                "Type": "And",
+                "Sensors": [
+                  { "Type": "IsCompanion" },
+                  {
+                    "Type": "Player",
+                    "Range": 200,
+                    "Filters": [ { "Type": "IsOwner" } ]
+                  }
+                ]
+              },
+              "BodyMotion": {
+                "Type": "Seek",
+                "RelativeSpeed": 1,
+                "StopDistance": 3,
+                "SlowDownDistance": 7,
+                "Falloff": 2,
+                "RelaxedMoveConstraints": true
+              }
+            },
+            {
+              "Sensor": { "Type": "Any" },
+              "Actions": [
+                {
+                  "Type": "Timeout",
+                  "Delay": [ 1, 1 ],
+                  "Action": {
+                    "Type": "Sequence",
+                    "Actions": [
+                      { "Type": "ReleaseTarget" },
+                      { "Type": "State", "State": "Watching" }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "InteractionInstruction": {
+    "Instructions": [
+      {
+        "Sensor": {
+          "Type": "Not",
+          "Sensor": {
+            "Type": "CanInteract",
+            "ViewSector": 180
+          }
+        },
+        "Actions": [
+          { "Type": "SetInteractable", "Interactable": false }
+        ]
+      },
+      {
+        "Continue": true,
+        "Sensor": { "Type": "Any" },
+        "Actions": [
+          {
+            "Type": "SetInteractable",
+            "Interactable": true,
+            "Hint": "server.interactionHints.talk"
+          }
+        ]
+      },
+      {
+        "Sensor": { "Type": "HasInteracted" },
+        "Instructions": [
+          {
+            "Sensor": {
+              "Type": "Not",
+              "Sensor": { "Type": "State", "State": "$Interaction" }
+            },
+            "Actions": [
+              { "Type": "LockOnInteractionTarget" },
+              { "Type": "State", "State": "$Interaction" }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
