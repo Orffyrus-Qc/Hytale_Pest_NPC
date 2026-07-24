@@ -17,7 +17,7 @@ tools:
   state_ingest: true
   player_demo_record: true
   memory_probe: false   # host process memory — off by default (prefer plugin state)
-  wiki_search: false
+  wiki_search: true    # MediaWiki Hytale wiki (opensearch + extracts) via /search-wiki + chat
   ask_player: true
 
 # D3 Generation control

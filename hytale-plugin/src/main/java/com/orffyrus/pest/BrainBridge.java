@@ -205,15 +205,37 @@ public class BrainBridge implements WebSocket.Listener {
         if (h == null) {
             return;
         }
-        String text = extract(json, "text");
+        // Prefer payload.text — action.text is often the same field and can be
+        // the first "text" key if field order changes, so read payload first.
+        String text = extractFromPayload(json, "text");
         if (text == null) {
-            text = extractDeep(json, "text");
+            text = extract(json, "text");
         }
         String actionName = extractFromAction(json, "name");
         String reason = extractFromAction(json, "reason");
         if (text != null) {
             h.onChatReply(text, actionName, reason);
         }
+    }
+
+    /** Extract a string field from the top-level "payload" object only. */
+    private static String extractFromPayload(String json, String key) {
+        int payloadIdx = json.indexOf("\"payload\"");
+        if (payloadIdx < 0) {
+            return null;
+        }
+        String sub = json.substring(payloadIdx);
+        int brace = sub.indexOf('{');
+        if (brace < 0) {
+            return null;
+        }
+        // Only search until the nested "action" object so we don't pick action.text
+        String payloadBody = sub.substring(brace);
+        int actionIdx = payloadBody.indexOf("\"action\"");
+        if (actionIdx > 0) {
+            payloadBody = payloadBody.substring(0, actionIdx);
+        }
+        return extract(payloadBody, key);
     }
 
     private static String extractFromAction(String json, String key) {

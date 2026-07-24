@@ -1,13 +1,17 @@
-"""HTTP API for status, learning control, and file search."""
+"""HTTP API for status, learning control, file search, and wiki search."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from fastapi import FastAPI, Query
+from fastapi import Body, FastAPI, Query
 from pydantic import BaseModel, Field
 
 from brain.service import BrainService
+
+
+class ChatIn(BaseModel):
+    text: str = Field(..., min_length=1)
 
 
 def create_app(brain: BrainService) -> FastAPI:
@@ -30,24 +34,36 @@ def create_app(brain: BrainService) -> FastAPI:
     def search_files(q: str = Query(""), limit: int = 12) -> dict[str, Any]:
         return {"query": q, "hits": brain.files.search(q, limit=limit)}
 
+    @app.get("/search-wiki")
+    async def search_wiki(q: str = Query(""), limit: int = 5) -> dict[str, Any]:
+        if not brain.wiki.enabled:
+            return {
+                "query": q,
+                "enabled": False,
+                "hits": [],
+                "error": "wiki_search is disabled in harness tools",
+            }
+        hits = await brain.wiki.search(q, limit=limit)
+        return {
+            "query": q,
+            "enabled": True,
+            "hits": hits,
+            "error": brain.wiki.last_error or None,
+        }
+
     @app.post("/mode/{mode}")
     def set_mode(mode: str) -> dict[str, str]:
         brain.policy.set_mode(mode)
         return {"mode": brain.policy.mode}
 
-    class ChatIn(BaseModel):
-        text: str = Field(..., min_length=1)
-
     @app.post("/chat")
-    async def chat(body: ChatIn) -> dict[str, Any]:
-        from brain.protocol import GameState
-
-        state = brain.last_state or GameState()
-        action = await brain.decide_and_learn(state)
-        reply = await brain.policy.maybe_narrate(state, action)
-        if not reply:
-            reply = f"{brain.settings.npc_name}: action={action.name} — {action.reason}"
-        return {"reply": reply, "action": action.model_dump()}
+    async def chat(payload: ChatIn = Body(...)) -> dict[str, Any]:
+        reply, action = await brain.answer_chat(payload.text)
+        return {
+            "reply": reply,
+            "action": action.model_dump(),
+            "wiki": brain.wiki.status() if brain.wiki.enabled else {"enabled": False},
+        }
 
     @app.post("/distill")
     def distill() -> dict[str, Any]:

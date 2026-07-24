@@ -162,15 +162,7 @@ class WsBridge:
         if t == MsgType.CHAT:
             text = str(p.get("text", ""))
             state = self.brain.last_state or GameState()
-            action = await self.brain.decide_and_learn(state)
-            reply = await self.brain.policy.maybe_narrate(state, action)
-            if not reply:
-                reply = (
-                    f"I'm {self.brain.settings.npc_name}. "
-                    f"Mode={self.brain.policy.mode}. "
-                    f"Plan: {action.name} ({action.reason}). "
-                    f"You said: {text[:120]}"
-                )
+            reply, action = await self.brain.answer_chat(text, state)
             await self._send(
                 ws,
                 Envelope(

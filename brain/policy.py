@@ -12,6 +12,7 @@ from brain.demo_store import DemoStore
 from brain.experience import ExperienceBank
 from brain.file_inspector import GameFileInspector
 from brain.protocol import GameState, NpcAction
+from brain.wiki_search import WikiSearch
 
 log = logging.getLogger("hytale_ai.policy")
 
@@ -37,12 +38,14 @@ class PlayPolicy:
         demos: DemoStore,
         files: GameFileInspector,
         settings: Any,
+        wiki: WikiSearch | None = None,
     ) -> None:
         self.harness = harness
         self.bank = bank
         self.demos = demos
         self.files = files
         self.settings = settings
+        self.wiki = wiki
         self.mode = str(harness.get("orchestration", {}).get("mode", "hybrid"))
         self._last_build_action_ts = 0.0
 
@@ -563,7 +566,73 @@ class PlayPolicy:
         log.info("Seeded %d curriculum lessons (base + combat + tools)", n)
         return n
 
-    async def maybe_narrate(self, state: GameState, action: NpcAction) -> str | None:
+    async def polish_wiki_answer(
+        self, query: str, wiki_answer: str, state: GameState
+    ) -> str | None:
+        """Optional LLM rewrite that must stay faithful to the wiki answer."""
+        if not self.settings.openai_api_key and not self.settings.ollama_base_url:
+            return None
+        prompt = (
+            f"You are {self.settings.npc_name}, a male Hytale companion (he/him). "
+            f"The player asked: {query}. "
+            f"Answer ONLY using these Hytale wiki facts — do not invent mechanics:\n"
+            f"{wiki_answer}\n"
+            f"Reply in 1–3 short in-character sentences. Keep the facts."
+        )
+        try:
+            if self.settings.ollama_base_url:
+                return await self._ollama(prompt)
+            return await self._openai(prompt, max_tokens=180)
+        except Exception as e:
+            log.warning("wiki polish failed: %s", e)
+            return None
+
+    async def maybe_chat_reply(
+        self, player_text: str, state: GameState, action: NpcAction
+    ) -> str | None:
+        """Answer player chat; game questions use Hytale wiki first."""
+        query = WikiSearch.extract_query_from_chat(player_text)
+
+        if self.wiki and self.wiki.enabled and query:
+            try:
+                wiki_answer = await self.wiki.answer_player_question(player_text, limit=3)
+                if wiki_answer:
+                    polished = await self.polish_wiki_answer(query, wiki_answer, state)
+                    return polished or wiki_answer
+            except Exception as e:
+                log.warning("wiki chat lookup failed: %s", e)
+
+        # No LLM: fall back to action narration
+        if not self.settings.openai_api_key and not self.settings.ollama_base_url:
+            return await self.maybe_narrate(state, action)
+
+        brief = self.files.knowledge_brief()
+        prompt = (
+            f"You are {self.settings.npc_name}, a male Hytale companion. "
+            f"Always use he/him pronouns for yourself. "
+            f"You build bases: closed wood room + door + bed inside for spawn. "
+            f"You never hunt merchants. "
+            f"Player said: {query or player_text[:200]}. "
+            f"Situation: {self.situation_text(state)}. "
+            f"Current plan: {action.name} item={action.item} ({action.reason}). "
+            f"Local files: {brief}. "
+            f"Reply in 1–3 short in-character sentences. "
+            f"Do not invent game mechanics you are unsure of."
+        )
+        try:
+            if self.settings.ollama_base_url:
+                return await self._ollama(prompt)
+            return await self._openai(prompt, max_tokens=160)
+        except Exception as e:
+            log.warning("chat reply failed: %s", e)
+            return await self.maybe_narrate(state, action)
+
+    async def maybe_narrate(
+        self,
+        state: GameState,
+        action: NpcAction,
+        wiki_brief: str = "",
+    ) -> str | None:
         if not self.settings.openai_api_key and not self.settings.ollama_base_url:
             if action.name == "craft_hint" and action.text:
                 return action.text
@@ -584,6 +653,7 @@ class PlayPolicy:
                 return "Staying with you."
             return None
         brief = self.files.knowledge_brief()
+        wiki_part = f" {wiki_brief}" if wiki_brief else ""
         prompt = (
             f"You are {self.settings.npc_name}, a male Hytale companion. "
             f"Always use he/him pronouns for yourself. "
@@ -591,7 +661,7 @@ class PlayPolicy:
             f"You never hunt merchants. "
             f"Situation: {self.situation_text(state)}. "
             f"Action: {action.name} item={action.item} ({action.reason}). "
-            f"Knowledge: {brief}. One short in-character sentence."
+            f"Knowledge: {brief}.{wiki_part} One short in-character sentence."
         )
         try:
             if self.settings.ollama_base_url:
@@ -601,13 +671,13 @@ class PlayPolicy:
             log.warning("narrate failed: %s", e)
             return None
 
-    async def _openai(self, prompt: str) -> str:
+    async def _openai(self, prompt: str, max_tokens: int = 80) -> str:
         headers = {"Authorization": f"Bearer {self.settings.openai_api_key}"}
         body = {
             "model": self.settings.openai_model,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": float(self.harness.get("generation", {}).get("temperature", 0.2)),
-            "max_tokens": 80,
+            "max_tokens": max_tokens,
         }
         async with httpx.AsyncClient(base_url=self.settings.openai_base_url, timeout=30) as client:
             r = await client.post("/chat/completions", headers=headers, json=body)

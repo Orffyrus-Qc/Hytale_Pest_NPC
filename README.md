@@ -49,6 +49,7 @@ If you already spoke to him recently, you can omit the name for a short while.
 | **Follow** | `follow me`, `come here`, `stay close`, `follow` |
 | **Stand down** | `stop hunting`, `stop fight`, `stand down`, `peace` |
 | **Move nudge** | `forward`, `walk`, `go ahead`, `jump`, `hop` (or combine, e.g. jump + forward) |
+| **Game wiki Q&A** | Questions (`?`, `what is…`, `how do…`, `tell me about…`) → brain looks up the **Hytale wiki** and answers from page extracts |
 
 **Examples**
 
@@ -60,9 +61,12 @@ Pest, loot
 Pest, status
 Pest, stand down
 Pest, set spawn
+Pest, what is a crude bed?
+Pest, how do zones work?
+Pest, tell me about zone 1
 ```
 
-Anything else that addresses Pest (and isn’t in the table) goes to the Docker brain for a free-form reply / plan.
+Questions go to the Hytale wiki (not local hunt/build shortcuts). Other free-form chat still hits the Docker brain.
 
 ---
 
@@ -129,6 +133,7 @@ HTTP checks:
 http://127.0.0.1:8780/health
 http://127.0.0.1:8780/status
 http://127.0.0.1:8780/search-files?q=npc
+http://127.0.0.1:8780/search-wiki?q=bed
 ```
 
 Stop:
@@ -143,7 +148,7 @@ Stop:
 
 | Port | Service |
 |------|---------|
-| **8780** | REST API (status, scan, chat, mode) |
+| **8780** | REST API (status, scan, chat, mode, search-files, search-wiki) |
 | **8766** | WebSocket plugin bridge |
 
 ---

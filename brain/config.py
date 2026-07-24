@@ -27,12 +27,14 @@ class Settings(BaseSettings):
     ollama_model: str = "llama3.2"
 
     harness_path: Path = Field(default=Path("/app/configs/harness.yaml"))
+    wiki_api_url: str = "https://hytale.wiki.gg/api.php"
 
     def ensure_dirs(self) -> None:
         for sub in (
             "experience",
             "demos",
             "file_index",
+            "wiki_cache",
             "policies",
             "sessions",
             "logs",
@@ -60,4 +62,7 @@ def get_settings() -> Settings:
     name = os.getenv("NPC_NAME")
     if name:
         s.npc_name = name
+    wiki = os.getenv("WIKI_API_URL", "").strip()
+    if wiki:
+        s.wiki_api_url = wiki
     return s
