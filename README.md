@@ -23,6 +23,37 @@ Runs in **its own Docker stack** (separate from Mori/OpenHands/NpcAiStack). The 
 | Chat: `Pest, build a base` | Instant build |
 | `/pest status` | places/20, invuln, base, timers |
 
+### Chat keywords (instant intents)
+
+Address him by name first (case-insensitive), e.g. **`Pest, follow me`**.  
+If you already spoke to him recently, you can omit the name for a short while.
+
+| Intent | Keywords / phrases (message must contain one) |
+|--------|-----------------------------------------------|
+| **Build home** | `build base`, `build a base`, `build house`, `make a base`, `make base`, `shelter`, `build room`, `build home`, `set up camp`, `make camp`, `build camp` |
+| **Rebuild home** | `rebuild`, `new base`, `another base` |
+| **Set spawn / bed** | `set spawn`, `set bed`, `place bed`, `sleep here`, `respawn here` |
+| **Hunt** | `hunt`, `kill animals`, `get hide`, `find prey` |
+| **Loot** | `loot`, `pick up`, `pickup`, `gather drops` |
+| **Status** | `status`, `what are you doing`, `inventory`, `where is base` |
+| **Follow** | `follow me`, `come here`, `stay close`, `follow` |
+| **Stand down** | `stop hunting`, `stop fight`, `stand down`, `peace` |
+| **Move nudge** | `forward`, `walk`, `go ahead`, `jump`, `hop` (or combine, e.g. jump + forward) |
+
+**Examples**
+
+```text
+Pest, follow me
+Pest, build a base
+Pest, hunt
+Pest, loot
+Pest, status
+Pest, stand down
+Pest, set spawn
+```
+
+Anything else that addresses Pest (and isn’t in the table) goes to the Docker brain for a free-form reply / plan.
+
 ---
 
 ## What it does
